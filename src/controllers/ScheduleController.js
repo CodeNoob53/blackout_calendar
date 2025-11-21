@@ -3,11 +3,9 @@ import {
   getLatestDate,
   getAllDates,
   getScheduleByQueueAndDate,
-  getScheduleMetadata,
-  getRecentUpdates,
-  getScheduleHistory,
-  getNewSchedules,
-  getUpdatedSchedules
+  getLatestScheduleByQueue,
+  getTodayScheduleStatus,
+  getScheduleMetadata
 } from '../db.js';
 import { ResponseFormatter } from '../utils/responseFormatter.js';
 import { DateValidator } from '../utils/validators.js';
@@ -97,19 +95,42 @@ export class ScheduleController {
     }));
   }
 
-  static getHistory(req, res) {
-    const { date } = req.params;
+  static getLatestScheduleByQueue(req, res) {
+    const { queue } = req.params;
 
-    if (!DateValidator.isValidDateFormat(date)) {
-      const error = ResponseFormatter.error('Invalid date format. Use YYYY-MM-DD', 400);
+    if (!DateValidator.isValidQueue(queue)) {
+      const error = ResponseFormatter.error('Invalid queue format. Use X.X', 400);
       return res.status(error.statusCode).json(error.response);
     }
 
-    const history = getScheduleHistory(date);
+    const latestDate = getLatestDate();
+
+    if (!latestDate) {
+      const error = ResponseFormatter.notFound('Немає доступних графіків');
+      return res.status(error.statusCode).json(error.response);
+    }
+
+    const schedule = getLatestScheduleByQueue(queue);
+
+    if (!schedule || schedule.length === 0) {
+      const error = ResponseFormatter.notFound(`Графік для черги ${queue} не знайдено`);
+      return res.status(error.statusCode).json(error.response);
+    }
+
+    const intervals = ResponseFormatter.formatQueueSchedule(schedule);
+
+    res.json(ResponseFormatter.success({ queue, date: latestDate, intervals }));
+  }
+
+  static getTodayStatus(req, res) {
+    const status = getTodayScheduleStatus();
 
     res.json(ResponseFormatter.success({
-      date,
-      history: ResponseFormatter.formatHistory(history)
+      today: status.date,
+      available: status.available,
+      message: status.available
+        ? 'Графік на сьогодні доступний'
+        : 'Графік на сьогодні ще не опублікований'
     }));
   }
 }

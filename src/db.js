@@ -179,14 +179,29 @@ export function getScheduleByDate(date) {
 }
 
 export function getLatestDate() {
-  const stmt = db.prepare(`
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+  // Спочатку перевіряємо, чи є графік на сьогодні
+  const todayStmt = db.prepare(`
+    SELECT DISTINCT date
+    FROM outages
+    WHERE date = ?
+  `);
+
+  const todayResult = todayStmt.get(today);
+  if (todayResult) {
+    return todayResult.date;
+  }
+
+  // Якщо на сьогодні немає, повертаємо найновішу дату
+  const latestStmt = db.prepare(`
     SELECT DISTINCT date
     FROM outages
     ORDER BY date DESC
     LIMIT 1
   `);
 
-  const result = stmt.get();
+  const result = latestStmt.get();
   return result?.date ?? null;
 }
 
@@ -208,6 +223,29 @@ export function getScheduleByQueueAndDate(queue, date) {
   `);
 
   return stmt.all(queue, date);
+}
+
+// Отримати останній графік для конкретної черги
+export function getLatestScheduleByQueue(queue) {
+  const latestDate = getLatestDate();
+  if (!latestDate) return null;
+
+  return getScheduleByQueueAndDate(queue, latestDate);
+}
+
+// Перевірити наявність графіку на сьогодні
+export function getTodayScheduleStatus() {
+  const today = new Date().toISOString().split('T')[0];
+  const stmt = db.prepare(`
+    SELECT COUNT(*) as count FROM outages WHERE date = ?
+  `);
+
+  const result = stmt.get(today);
+  return {
+    date: today,
+    available: result.count > 0,
+    count: result.count
+  };
 }
 
 // Отримати метадані для дати
@@ -242,16 +280,20 @@ export function getScheduleHistory(date) {
 }
 
 // Отримати всі нові графіки (опубліковані сьогодні/недавно)
+// Тільки для МАЙБУТНІХ дат (завтра і далі)
 export function getNewSchedules(hoursAgo = 24) {
   const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
   const stmt = db.prepare(`
     SELECT * FROM schedule_metadata
-    WHERE change_type = 'new' AND first_published_at > ?
+    WHERE change_type = 'new'
+      AND first_published_at > ?
+      AND date > ?
     ORDER BY first_published_at DESC
   `);
 
-  return stmt.all(since);
+  return stmt.all(since, today);
 }
 
 // Отримати всі оновлені графіки (оновлені сьогодні/недавно)

@@ -9,11 +9,13 @@ import { initDatabase } from "./db.js";
 import { updateFromTelegram } from "./scraper/telegramScraper.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
 import updateRoutes from "./routes/updateRoutes.js";
+import addressRoutes from "./routes/addressRoutes.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import Logger from "./utils/logger.js";
 import swaggerUi from "swagger-ui-express";
 import { specs } from "./config/swagger.js";
-import rateLimit from "express-rate-limit";
+import { generalLimiter, searchLimiter, scheduleLimiter, updatesLimiter } from "./middleware/rateLimiter.js";
+import { i18nMiddleware, getAvailableLocales } from "./i18n/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,16 +37,11 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: {
-    success: false,
-    error: "Too many requests, please try again later.",
-  },
-});
-app.use("/api/", limiter);
+// i18n middleware - має бути перед всіма роутами
+app.use(i18nMiddleware);
+
+// Rate limiting - загальний для всього API
+app.use("/api/", generalLimiter);
 
 // Swagger UI
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(specs));
@@ -52,40 +49,46 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(specs));
 // Головна сторінка з документацією API
 app.get("/", (req, res) => {
   res.json({
-    status: "ok",
-    message: "Blackout Calendar API 🚀",
-    version: "2.0.0",
+    status: req.t('api.statusOk'),
+    message: req.t('api.message'),
+    version: req.t('api.version'),
+    language: req.locale,
+    availableLanguages: getAvailableLocales(),
     endpoints: {
       schedules: {
-        "GET /api/schedules/latest": "Отримати останній доступний графік",
-        "GET /api/schedules/dates": "Список всіх доступних дат",
-        "GET /api/schedules/:date": "Отримати графік на дату (YYYY-MM-DD)",
-        "GET /api/schedules/:date/metadata": "Метадані графіку (час оновлення, кількість змін)",
-        "GET /api/schedules/:date/history": "Історія всіх змін для дати",
-        "GET /api/schedules/:date/queues/:queue": "Графік для конкретної черги на дату"
+        "GET /api/schedules/latest": req.t('api.endpoints.schedules.latest'),
+        "GET /api/schedules/today/status": req.t('api.endpoints.schedules.todayStatus'),
+        "GET /api/schedules/dates": req.t('api.endpoints.schedules.dates'),
+        "GET /api/schedules/queues/:queue/latest": req.t('api.endpoints.schedules.queueLatest'),
+        "GET /api/schedules/:date": req.t('api.endpoints.schedules.byDate'),
+        "GET /api/schedules/:date/metadata": req.t('api.endpoints.schedules.metadata'),
+        "GET /api/schedules/:date/queues/:queue": req.t('api.endpoints.schedules.byQueueAndDate')
       },
       updates: {
-        "POST /api/updates/trigger": "Оновити графік з Telegram (ручне)",
-        "GET /api/updates/recent": "Останні оновлення (?limit=10)",
-        "GET /api/updates/new": "Нові графіки за останні N годин (?hours=24)",
-        "GET /api/updates/changed": "Змінені графіки за останні N годин (?hours=24)"
+        "GET /api/updates/new": req.t('api.endpoints.updates.new'),
+        "GET /api/updates/changed": req.t('api.endpoints.updates.changed')
+      },
+      addresses: {
+        "GET /api/addresses/search?q=query": req.t('api.endpoints.addresses.search'),
+        "GET /api/addresses/exact?address=full": req.t('api.endpoints.addresses.exact')
       }
     },
+    rateLimits: {
+      "/api/schedules": req.t('api.rateLimits.schedules'),
+      "/api/updates": req.t('api.rateLimits.updates'),
+      "/api/addresses": req.t('api.rateLimits.addresses'),
+      "general": req.t('api.rateLimits.general')
+    },
     changes: {
-      v2: [
-        "Переписано на класову архітектуру",
-        "Додано валідацію параметрів запитів",
-        "Оновлено структуру URL (більш RESTful)",
-        "Покращено обробку помилок",
-        "Додано форматування відповідей"
-      ]
+      v2: req.t('api.changes.v2')
     }
   });
 });
 
-// API Routes
-app.use("/api/schedules", scheduleRoutes);
-app.use("/api/updates", updateRoutes);
+// API Routes з специфічними rate limiters
+app.use("/api/schedules", scheduleLimiter, scheduleRoutes);
+app.use("/api/updates", updatesLimiter, updateRoutes);
+app.use("/api/addresses", searchLimiter, addressRoutes);
 
 // Backwards compatibility routes (deprecated)
 app.get("/api/schedule/:date", (req, res) => {
