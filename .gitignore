@@ -7,6 +7,7 @@ node_modules/
 
 # Database
 data/
+tools/
 *.db
 *.db-journal
 *.sqlite
@@ -35,3 +36,6 @@ Thumbs.db
 dist/
 build/
 yarn.lock
+normalized.json
+data.txt
+.gitignore

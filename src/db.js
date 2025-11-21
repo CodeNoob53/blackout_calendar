@@ -44,10 +44,22 @@ export function initDatabase() {
       change_type TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS addresses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      street TEXT NOT NULL,
+      house TEXT NOT NULL,
+      full_address TEXT NOT NULL UNIQUE,
+      queue TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_date ON outages(date);
     CREATE INDEX IF NOT EXISTS idx_queue ON outages(queue);
     CREATE INDEX IF NOT EXISTS idx_history_date ON schedule_history(date);
     CREATE INDEX IF NOT EXISTS idx_metadata_updated ON schedule_metadata(last_updated_at);
+    CREATE INDEX IF NOT EXISTS idx_addresses_street ON addresses(street);
+    CREATE INDEX IF NOT EXISTS idx_addresses_queue ON addresses(queue);
+    CREATE INDEX IF NOT EXISTS idx_addresses_full_address ON addresses(full_address);
   `);
 
   Logger.db(`Initialized at ${dbPath}`);
@@ -253,6 +265,66 @@ export function getUpdatedSchedules(hoursAgo = 24) {
   `);
 
   return stmt.all(since);
+}
+
+// ========== Функції для роботи з адресами ==========
+
+// Пошук адреси за повною адресою
+export function findAddressByFullAddress(fullAddress) {
+  const stmt = db.prepare(`
+    SELECT * FROM addresses WHERE full_address = ?
+  `);
+  return stmt.get(fullAddress);
+}
+
+// Пошук адрес за вулицею
+export function findAddressesByStreet(street) {
+  const stmt = db.prepare(`
+    SELECT * FROM addresses WHERE street LIKE ?
+    ORDER BY house
+  `);
+  return stmt.all(`%${street}%`);
+}
+
+// Пошук адрес за чергою
+export function findAddressesByQueue(queue) {
+  const stmt = db.prepare(`
+    SELECT * FROM addresses WHERE queue = ?
+    ORDER BY street, house
+  `);
+  return stmt.all(queue);
+}
+
+// Отримати всі унікальні вулиці
+export function getAllStreets() {
+  const stmt = db.prepare(`
+    SELECT DISTINCT street FROM addresses
+    ORDER BY street
+  `);
+  return stmt.all();
+}
+
+// Отримати всі унікальні черги
+export function getAllQueues() {
+  const stmt = db.prepare(`
+    SELECT DISTINCT queue FROM addresses
+    WHERE queue IS NOT NULL
+    ORDER BY queue
+  `);
+  return stmt.all();
+}
+
+// Статистика по адресам
+export function getAddressStats() {
+  const stmt = db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      COUNT(DISTINCT street) as unique_streets,
+      COUNT(CASE WHEN queue IS NOT NULL THEN 1 END) as with_queue,
+      COUNT(CASE WHEN queue IS NULL THEN 1 END) as without_queue
+    FROM addresses
+  `);
+  return stmt.get();
 }
 
 export { db };
