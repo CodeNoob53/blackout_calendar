@@ -13,11 +13,12 @@ const createMessageHandler = (errorKey) => {
 
 /**
  * Загальний rate limiter для всіх API endpoints
- * 100 запитів на 15 хвилин з одного IP
+ * 300 запитів на 15 хвилин з одного IP
+ * Примітка: Вищий за специфічні ліміти, служить загальним захистом від зловживань
  */
 export const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 хвилин
-  max: 100,
+  max: 300,
   message: createMessageHandler('errors.tooManyRequests'),
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers

@@ -27,7 +27,7 @@ export default {
 
   api: {
     statusOk: 'ok',
-    message: 'Blackout Calendar API 🚀',
+    message: 'Blackout Calendar API ⚡',
     version: '2.0.0',
 
     endpoints: {
