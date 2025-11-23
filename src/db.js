@@ -82,10 +82,9 @@ export function initDatabase() {
 
 export function getSourceMessageId(date) {
   const stmt = db.prepare(`
-    SELECT DISTINCT source_msg_id
-    FROM outages
+    SELECT source_msg_id
+    FROM schedule_metadata
     WHERE date = ?
-    LIMIT 1
   `);
 
   const result = stmt.get(date);
@@ -153,7 +152,7 @@ export function insertParsedSchedule(data, sourceMsgId, messageDate = null) {
     if (metadata) {
       updateMetadata.run(msgId, msgDate, now, chgType, date);
     } else {
-      insertMetadata.run(date, msgId, msgDate, now, now, 1, chgType);
+      insertMetadata.run(date, msgId, msgDate, now, now, 0, chgType);
     }
   });
 
@@ -279,34 +278,44 @@ export function getScheduleHistory(date) {
   return stmt.all(date);
 }
 
-// Отримати всі нові графіки (опубліковані сьогодні/недавно)
-// Тільки для МАЙБУТНІХ дат (завтра і далі)
+// Отримати всі нові/оновлені графіки для майбутніх дат + пізні публікації на сьогодні
+// Для push: "Графік на завтра", "Зміни в завтрашньому графіку", "Графік на сьогодні (пізня публікація)"
 export function getNewSchedules(hoursAgo = 24) {
   const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
   const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
   const stmt = db.prepare(`
     SELECT * FROM schedule_metadata
-    WHERE change_type = 'new'
-      AND first_published_at > ?
-      AND date > ?
-    ORDER BY first_published_at DESC
+    WHERE (
+      -- Майбутні дати (завтра і далі): нові або оновлені
+      (date > ? AND (first_published_at > ? OR (change_type = 'updated' AND last_updated_at > ?)))
+      OR
+      -- Сьогодні: тільки нові (пізня публікація)
+      (date = ? AND change_type = 'new' AND first_published_at > ?)
+    )
+    ORDER BY date DESC, COALESCE(last_updated_at, first_published_at) DESC
+    LIMIT 1
   `);
 
-  return stmt.all(since, today);
+  return stmt.all(today, since, since, today, since);
 }
 
-// Отримати всі оновлені графіки (оновлені сьогодні/недавно)
+// Отримати ТІЛЬКИ ОДНЕ останнє оновлення графіку на СЬОГОДНІ
+// Для push: "Увага! Поточний графік змінено о 14:30"
 export function getUpdatedSchedules(hoursAgo = 24) {
   const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
   const stmt = db.prepare(`
     SELECT * FROM schedule_metadata
-    WHERE change_type = 'updated' AND last_updated_at > ?
+    WHERE date = ?
+      AND change_type = 'updated'
+      AND last_updated_at > ?
     ORDER BY last_updated_at DESC
+    LIMIT 1
   `);
 
-  return stmt.all(since);
+  return stmt.all(today, since);
 }
 
 // ========== Функції для роботи з адресами ==========

@@ -41,32 +41,30 @@ export async function updateFromTelegram() {
     m.text.includes("ОНОВЛЕНО")
   );
 
-  // Групуємо повідомлення по датах і беремо тільки останнє (з найбільшим ID) для кожної дати
-  const schedulesByDate = new Map();
+  // Парсимо всі повідомлення та сортуємо їх за ID (від старих до нових)
+  const parsedMessages = [];
 
   for (const msg of relevant) {
     const parsed = parseScheduleMessage(msg.text);
     if (parsed.date && parsed.queues.length > 0) {
-      const existing = schedulesByDate.get(parsed.date);
-
-      // Зберігаємо тільки повідомлення з найбільшим ID (останнє оновлення)
-      if (!existing || msg.id > existing.msgId) {
-        schedulesByDate.set(parsed.date, {
-          msgId: msg.id,
-          parsed: parsed,
-          messageDate: msg.messageDate
-        });
-      }
+      parsedMessages.push({
+        msgId: msg.id,
+        parsed: parsed,
+        messageDate: msg.messageDate
+      });
     }
   }
 
-  // Тепер вставляємо в БД тільки останні версії для кожної дати
+  // Сортуємо за ID (від старих до нових), щоб обробляти оновлення в правильному порядку
+  parsedMessages.sort((a, b) => a.msgId - b.msgId);
+
+  // Обробляємо всі повідомлення в хронологічному порядку
   let updated = 0;
   let skipped = 0;
   const newSchedules = [];
   const updatedSchedules = [];
 
-  for (const [, { msgId, parsed, messageDate }] of schedulesByDate) {
+  for (const { msgId, parsed, messageDate } of parsedMessages) {
     const result = insertParsedSchedule(parsed, msgId, messageDate);
 
     if (!result.updated) {
@@ -74,14 +72,26 @@ export async function updateFromTelegram() {
     } else {
       updated++;
 
-      // Зберігаємо для push-повідомлень
+      // Зберігаємо для push-повідомлень тільки останні зміни для кожної дати
       if (result.changeType === "new") {
+        // Видаляємо попередню new-запис для цієї дати (якщо є)
+        const existingIndex = newSchedules.findIndex(s => s.date === parsed.date);
+        if (existingIndex !== -1) {
+          newSchedules.splice(existingIndex, 1);
+        }
+
         newSchedules.push({
           date: parsed.date,
           messageDate: result.messageDate,
           postId: msgId
         });
       } else if (result.changeType === "updated") {
+        // Видаляємо попередній updated-запис для цієї дати (якщо є)
+        const existingIndex = updatedSchedules.findIndex(s => s.date === parsed.date);
+        if (existingIndex !== -1) {
+          updatedSchedules.splice(existingIndex, 1);
+        }
+
         updatedSchedules.push({
           date: parsed.date,
           messageDate: result.messageDate,
@@ -95,7 +105,7 @@ export async function updateFromTelegram() {
 
   // Повертаємо дані для push-повідомлень
   return {
-    total: schedulesByDate.size,
+    total: parsedMessages.length,
     updated,
     skipped,
     newSchedules,

@@ -10,11 +10,20 @@ export class AddressController {
    * Мінімум 3 символи для пошуку
    */
   static searchAddresses(req, res) {
-    const { q } = req.query;
+    let { q } = req.query;
 
     if (!q || q.trim().length === 0) {
       const error = ResponseFormatter.error('Query parameter "q" is required', 400);
       return res.status(error.statusCode).json(error.response);
+    }
+
+    try {
+      // Спробуємо декодувати, якщо це ще не зроблено
+      if (q.includes('%')) {
+        q = decodeURIComponent(q);
+      }
+    } catch (e) {
+      // Ігноруємо помилки декодування, використовуємо як є
     }
 
     if (q.trim().length < 3) {
@@ -35,11 +44,19 @@ export class AddressController {
    * GET /api/addresses/exact?address=повна адреса - Пошук за точною адресою
    */
   static findByExactAddress(req, res) {
-    const { address } = req.query;
+    let { address } = req.query;
 
     if (!address || address.trim().length === 0) {
       const error = ResponseFormatter.error('Query parameter "address" is required', 400);
       return res.status(error.statusCode).json(error.response);
+    }
+
+    try {
+      if (address.includes('%')) {
+        address = decodeURIComponent(address);
+      }
+    } catch (e) {
+      // Ігноруємо помилки декодування
     }
 
     const result = findAddressByFullAddress(address.trim());
