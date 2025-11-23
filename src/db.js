@@ -1,12 +1,19 @@
 import Database from "better-sqlite3";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import fs from "fs";
 import Logger from "./utils/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const dbPath = join(__dirname, "..", "data", "blackout.db");
+// Створюємо папку для бази даних, якщо вона не існує
+const dataDir = join(__dirname, "..", "data");
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const dbPath = join(dataDir, "blackout.db");
 const db = new Database(dbPath);
 
 // Створення таблиці при ініціалізації

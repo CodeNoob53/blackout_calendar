@@ -2,8 +2,7 @@ import express from "express";
 import cors from "cors";
 import nodeCron from "node-cron";
 import { fileURLToPath } from "url";
-import { dirname, join } from "path";
-import fs from "fs";
+import { dirname } from "path";
 import config from "./config/index.js";
 import { initDatabase } from "./db.js";
 import { updateFromTelegram } from "./scraper/telegramScraper.js";
@@ -19,13 +18,6 @@ import { i18nMiddleware, getAvailableLocales } from "./i18n/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-// Створюємо папку для бази даних
-const dataDir = join(__dirname, "..", "data");
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-  Logger.server("Created data directory");
-}
 
 // Ініціалізуємо базу даних
 initDatabase();

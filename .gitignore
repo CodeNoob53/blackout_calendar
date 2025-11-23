@@ -35,7 +35,6 @@ Thumbs.db
 # Build
 dist/
 build/
-yarn.lock
 normalized.json
 data.txt
 .gitignore
