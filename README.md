@@ -8,6 +8,11 @@
 
 Сервіс моніторить офіційний Telegram-канал [Zaporizhzhyaoblenergo_news](https://t.me/s/Zaporizhzhyaoblenergo_news), парсить повідомлення про графіки та надає їх через зручний REST API.
 
+## 🌐 Live API
+
+- **API Endpoint**: https://blackout-calendar.onrender.com
+- **Swagger Docs**: https://blackout-calendar.onrender.com/api-docs
+
 ---
 
 ## 🚀 Можливості

@@ -1,6 +1,7 @@
 # 📖 API Documentation
 
-**Базовий URL:** `http://localhost:3000/api`
+**Базовий URL (Production):** `https://blackout-calendar.onrender.com/api`
+**Базовий URL (Development):** `http://localhost:3000/api`
 
 **Версія:** 2.0.0
 
@@ -508,33 +509,37 @@ RateLimit-Reset: 1732269600
 
 ## 📊 Приклади використання
 
+> **Примітка**: У прикладах використовується production URL. Для локального тестування замініть `https://blackout-calendar.onrender.com` на `http://localhost:3000`.
+
 ### cURL
 
 ```bash
 # Отримати останній графік
-curl http://localhost:3000/api/schedules/latest
+curl https://blackout-calendar.onrender.com/api/schedules/latest
 
 # Отримати графік англійською
-curl http://localhost:3000/api/schedules/latest?lang=en
+curl https://blackout-calendar.onrender.com/api/schedules/latest?lang=en
 
 # Пошук адреси
-curl "http://localhost:3000/api/addresses/search?q=Соборний&limit=5"
+curl "https://blackout-calendar.onrender.com/api/addresses/search?q=Соборний&limit=5"
 
 # Нові графіки за останні 48 годин
-curl http://localhost:3000/api/updates/new?hours=48
+curl https://blackout-calendar.onrender.com/api/updates/new?hours=48
 ```
 
 ### JavaScript (fetch)
 
 ```javascript
+const API_URL = 'https://blackout-calendar.onrender.com';
+
 // Отримати графік на сьогодні
-const response = await fetch('http://localhost:3000/api/schedules/today/status');
+const response = await fetch(`${API_URL}/api/schedules/today/status`);
 const data = await response.json();
 console.log(data);
 
 // Пошук адреси з обробкою помилок
 try {
-  const response = await fetch('http://localhost:3000/api/addresses/search?q=Соборний');
+  const response = await fetch(`${API_URL}/api/addresses/search?q=Соборний`);
 
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
@@ -552,18 +557,20 @@ try {
 ```python
 import requests
 
+API_URL = 'https://blackout-calendar.onrender.com'
+
 # Отримати список дат
-response = requests.get('http://localhost:3000/api/schedules/dates')
+response = requests.get(f'{API_URL}/api/schedules/dates')
 data = response.json()
 print(data['dates'])
 
 # Отримати графік на конкретну дату
 date = '2025-11-22'
-response = requests.get(f'http://localhost:3000/api/schedules/{date}')
+response = requests.get(f'{API_URL}/api/schedules/{date}')
 schedule = response.json()
 print(schedule)
 ```
 
 ---
 
-**Останнє оновлення:** 2025-11-22
+**Останнє оновлення:** 2025-11-23
