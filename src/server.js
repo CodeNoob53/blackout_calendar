@@ -10,7 +10,9 @@ import scheduleRoutes from "./routes/scheduleRoutes.js";
 import updateRoutes from "./routes/updateRoutes.js";
 import addressRoutes from "./routes/addressRoutes.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { requestLogger } from "./middleware/requestLogger.js";
 import Logger from "./utils/logger.js";
+import cache from "./utils/cache.js";
 import swaggerUi from "swagger-ui-express";
 import { specs } from "./config/swagger.js";
 import { generalLimiter, searchLimiter, scheduleLimiter, updatesLimiter } from "./middleware/rateLimiter.js";
@@ -28,6 +30,9 @@ const PORT = config.server.port;
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
+
+// Request logging middleware - має бути перед роутами, але після CORS
+app.use(requestLogger);
 
 // i18n middleware - має бути перед всіма роутами
 app.use(i18nMiddleware);
@@ -103,6 +108,21 @@ app.post("/api/update", (_req, res) => {
   res.redirect(307, "/api/updates/trigger");
 });
 
+// Health check endpoint
+app.get("/health", (req, res) => {
+  const cacheStats = cache.getStats();
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: config.server.env,
+    cache: {
+      size: cacheStats.size,
+      keys: cacheStats.keys
+    }
+  });
+});
+
 // Error handling middleware (має бути останнім)
 app.use(errorHandler);
 
@@ -145,11 +165,23 @@ class AutoUpdateService {
 
 const autoUpdate = new AutoUpdateService();
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   Logger.banner("Blackout Calendar API", "2.0.0", config.server.env);
   Logger.success('Server', `Running at http://localhost:${PORT}`);
   Logger.info('Server', `API Documentation: http://localhost:${PORT}`);
   Logger.divider();
 
   autoUpdate.start();
+});
+
+// Обробка помилок при запуску сервера
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    Logger.error('Server', `Port ${PORT} is already in use. Please stop the other process or use a different port.`);
+    Logger.info('Server', `To find and kill the process: netstat -ano | findstr :${PORT}`);
+    process.exit(1);
+  } else {
+    Logger.error('Server', 'Failed to start server', error);
+    process.exit(1);
+  }
 });

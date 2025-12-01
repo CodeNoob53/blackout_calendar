@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import { parseScheduleMessage } from "./parser.js";
 import { insertParsedSchedule } from "../db.js";
 import config from "../config/index.js";
+import cache from "../utils/cache.js";
 
 const CHANNEL_URL = config.telegram.channelUrl;
 
@@ -102,6 +103,13 @@ export async function updateFromTelegram() {
   }
 
   // Лог буде виведено через Logger.updateSummary() у server.js
+
+  // Інвалідуємо кеш після оновлення даних
+  if (updated > 0) {
+    cache.delete('schedules:all-dates');
+    cache.delete('schedules:latest');
+    cache.delete('schedules:today-status');
+  }
 
   // Повертаємо дані для push-повідомлень
   return {

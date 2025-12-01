@@ -8,6 +8,7 @@ import {
   getScheduleMetadata
 } from '../db.js';
 import { ResponseFormatter } from '../utils/responseFormatter.js';
+import cache from '../utils/cache.js';
 
 export class ScheduleController {
   static getScheduleByDate(req, res) {
@@ -43,22 +44,40 @@ export class ScheduleController {
   }
 
   static getAllDates(req, res) {
-    const dates = getAllDates();
-    res.json(ResponseFormatter.success({ dates: dates.map(d => d.date) }));
+    // Кешуємо список дат на 5 хвилин
+    const cacheKey = 'schedules:all-dates';
+    let cached = cache.get(cacheKey);
+    
+    if (!cached) {
+      const dates = getAllDates();
+      cached = dates.map(d => d.date);
+      cache.set(cacheKey, cached, 300); // 5 хвилин
+    }
+    
+    res.json(ResponseFormatter.success({ dates: cached }));
   }
 
   static getLatestSchedule(req, res) {
-    const latestDate = getLatestDate();
+    // Кешуємо останній графік на 2 хвилини (оновлюється кожні 5 хв)
+    const cacheKey = 'schedules:latest';
+    let cached = cache.get(cacheKey);
+    
+    if (!cached) {
+      const latestDate = getLatestDate();
 
-    if (!latestDate) {
-      const error = ResponseFormatter.notFound('Немає доступних графіків');
-      return res.status(error.statusCode).json(error.response);
+      if (!latestDate) {
+        const error = ResponseFormatter.notFound('Немає доступних графіків');
+        return res.status(error.statusCode).json(error.response);
+      }
+
+      const schedule = getScheduleByDate(latestDate);
+      const queues = ResponseFormatter.formatScheduleData(schedule);
+      
+      cached = { date: latestDate, queues };
+      cache.set(cacheKey, cached, 120); // 2 хвилини
     }
 
-    const schedule = getScheduleByDate(latestDate);
-    const queues = ResponseFormatter.formatScheduleData(schedule);
-
-    res.json(ResponseFormatter.success({ date: latestDate, queues }));
+    res.json(ResponseFormatter.success(cached));
   }
 
   static getMetadata(req, res) {
@@ -73,6 +92,7 @@ export class ScheduleController {
     }
 
     res.json(ResponseFormatter.success({
+      date,
       metadata: ResponseFormatter.formatMetadata(metadata)
     }));
   }
@@ -101,14 +121,22 @@ export class ScheduleController {
   }
 
   static getTodayStatus(req, res) {
-    const status = getTodayScheduleStatus();
+    // Кешуємо статус на сьогодні на 2 хвилини
+    const cacheKey = 'schedules:today-status';
+    let cached = cache.get(cacheKey);
+    
+    if (!cached) {
+      const status = getTodayScheduleStatus();
+      cached = {
+        today: status.date,
+        available: status.available,
+        message: status.available
+          ? 'Графік на сьогодні доступний'
+          : 'Графік на сьогодні ще не опублікований'
+      };
+      cache.set(cacheKey, cached, 120); // 2 хвилини
+    }
 
-    res.json(ResponseFormatter.success({
-      today: status.date,
-      available: status.available,
-      message: status.available
-        ? 'Графік на сьогодні доступний'
-        : 'Графік на сьогодні ще не опублікований'
-    }));
+    res.json(ResponseFormatter.success(cached));
   }
 }
