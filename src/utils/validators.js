@@ -12,8 +12,11 @@ export class DateValidator {
   }
 
   static validateHours(hours) {
-    const num = parseInt(hours);
-    return !isNaN(num) && num > 0 && num <= 720; // max 30 days
+    // Перевіряємо, що це число (не рядок) та валідуємо діапазон
+    if (typeof hours !== 'number' || isNaN(hours)) {
+      return false;
+    }
+    return hours > 0 && hours <= 720; // max 30 days
   }
 
   static validateLimit(limit) {

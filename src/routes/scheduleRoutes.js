@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ScheduleController } from '../controllers/ScheduleController.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { validateDateParam, validateQueueParam } from '../middleware/validators.js';
 
 const router = Router();
 
@@ -109,7 +110,7 @@ router.get('/dates', asyncHandler(ScheduleController.getAllDates));
  *       200:
  *         description: Schedule for queue
  */
-router.get('/queues/:queue/latest', asyncHandler(ScheduleController.getLatestScheduleByQueue));
+router.get('/queues/:queue/latest', validateQueueParam, asyncHandler(ScheduleController.getLatestScheduleByQueue));
 
 /**
  * @swagger
@@ -129,7 +130,7 @@ router.get('/queues/:queue/latest', asyncHandler(ScheduleController.getLatestSch
  *       200:
  *         description: Schedule for date
  */
-router.get('/:date', asyncHandler(ScheduleController.getScheduleByDate));
+router.get('/:date', validateDateParam, asyncHandler(ScheduleController.getScheduleByDate));
 
 /**
  * @swagger
@@ -148,7 +149,7 @@ router.get('/:date', asyncHandler(ScheduleController.getScheduleByDate));
  *       200:
  *         description: Schedule metadata
  */
-router.get('/:date/metadata', asyncHandler(ScheduleController.getMetadata));
+router.get('/:date/metadata', validateDateParam, asyncHandler(ScheduleController.getMetadata));
 
 /**
  * @swagger
@@ -172,6 +173,6 @@ router.get('/:date/metadata', asyncHandler(ScheduleController.getMetadata));
  *       200:
  *         description: Schedule for queue and date
  */
-router.get('/:date/queues/:queue', asyncHandler(ScheduleController.getScheduleByQueue));
+router.get('/:date/queues/:queue', validateDateParam, validateQueueParam, asyncHandler(ScheduleController.getScheduleByQueue));
 
 export default router;

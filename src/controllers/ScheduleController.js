@@ -8,16 +8,11 @@ import {
   getScheduleMetadata
 } from '../db.js';
 import { ResponseFormatter } from '../utils/responseFormatter.js';
-import { DateValidator } from '../utils/validators.js';
 
 export class ScheduleController {
   static getScheduleByDate(req, res) {
     const { date } = req.params;
-
-    if (!DateValidator.isValidDateFormat(date)) {
-      const error = ResponseFormatter.error('Invalid date format. Use YYYY-MM-DD', 400);
-      return res.status(error.statusCode).json(error.response);
-    }
+    // Валідація виконується в middleware validateDateParam
 
     const schedule = getScheduleByDate(date);
 
@@ -33,16 +28,7 @@ export class ScheduleController {
 
   static getScheduleByQueue(req, res) {
     const { queue, date } = req.params;
-
-    if (!DateValidator.isValidDateFormat(date)) {
-      const error = ResponseFormatter.error('Invalid date format. Use YYYY-MM-DD', 400);
-      return res.status(error.statusCode).json(error.response);
-    }
-
-    if (!DateValidator.isValidQueue(queue)) {
-      const error = ResponseFormatter.error('Invalid queue format. Use X.X', 400);
-      return res.status(error.statusCode).json(error.response);
-    }
+    // Валідація виконується в middleware validateDateParam та validateQueueParam
 
     const schedule = getScheduleByQueueAndDate(queue, date);
 
@@ -77,11 +63,7 @@ export class ScheduleController {
 
   static getMetadata(req, res) {
     const { date } = req.params;
-
-    if (!DateValidator.isValidDateFormat(date)) {
-      const error = ResponseFormatter.error('Invalid date format. Use YYYY-MM-DD', 400);
-      return res.status(error.statusCode).json(error.response);
-    }
+    // Валідація виконується в middleware validateDateParam
 
     const metadata = getScheduleMetadata(date);
 
@@ -97,11 +79,7 @@ export class ScheduleController {
 
   static getLatestScheduleByQueue(req, res) {
     const { queue } = req.params;
-
-    if (!DateValidator.isValidQueue(queue)) {
-      const error = ResponseFormatter.error('Invalid queue format. Use X.X', 400);
-      return res.status(error.statusCode).json(error.response);
-    }
+    // Валідація виконується в middleware validateQueueParam
 
     const latestDate = getLatestDate();
 

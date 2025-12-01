@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { UpdateController } from '../controllers/UpdateController.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { validateHoursQuery } from '../middleware/validators.js';
 
 const router = Router();
 
@@ -43,7 +44,7 @@ const router = Router();
  *                       pushMessage:
  *                         type: string
  */
-router.get('/new', asyncHandler(UpdateController.getNewSchedules));
+router.get('/new', validateHoursQuery, asyncHandler(UpdateController.getNewSchedules));
 
 /**
  * @swagger
@@ -84,6 +85,6 @@ router.get('/new', asyncHandler(UpdateController.getNewSchedules));
  *                       pushMessage:
  *                         type: string
  */
-router.get('/changed', asyncHandler(UpdateController.getUpdatedSchedules));
+router.get('/changed', validateHoursQuery, asyncHandler(UpdateController.getUpdatedSchedules));
 
 export default router;

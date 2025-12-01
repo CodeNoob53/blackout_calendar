@@ -23,7 +23,7 @@ export const config = {
   // Auto-update Configuration
   autoUpdate: {
     enabled: process.env.AUTO_UPDATE !== 'false',
-    interval: process.env.UPDATE_INTERVAL || '*/30 * * * *'
+    interval: process.env.UPDATE_INTERVAL || '*/5 * * * *' // Кожні 5 хвилин
   },
 
   // Telegram Configuration

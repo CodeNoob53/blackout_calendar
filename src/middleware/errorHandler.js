@@ -1,7 +1,9 @@
 import { ResponseFormatter } from '../utils/responseFormatter.js';
+import Logger from '../utils/logger.js';
 
 export function errorHandler(err, req, res, next) {
-  console.error('[Error]', err);
+  // Логуємо помилку через Logger замість console.error
+  Logger.error('ErrorHandler', err.message || 'Internal Server Error', err);
 
   const statusCode = err.statusCode || 500;
   const message = err.message || 'Internal Server Error';
