@@ -99,12 +99,36 @@ export function getSourceMessageId(date) {
 }
 
 export function insertParsedSchedule(data, sourceMsgId, messageDate = null) {
-  // Перевіряємо чи це той самий source_msg_id
-  const existingMsgId = getSourceMessageId(data.date);
+  const metadata = getScheduleMetadata(data.date);
+  const existingMsgId = metadata?.source_msg_id;
 
+  // 1. Якщо повідомлення старіше за те, що ми вже обробили - ігноруємо
+  if (existingMsgId && sourceMsgId < existingMsgId) {
+    Logger.debug('Database', `Skipped ${data.date} - older post ${sourceMsgId} < ${existingMsgId}`);
+    return { updated: false, changeType: null };
+  }
+
+  // 2. Якщо це те саме повідомлення - ігноруємо
   if (existingMsgId === sourceMsgId) {
     Logger.debug('Database', `Skipped ${data.date} - already up to date (post ${sourceMsgId})`);
     return { updated: false, changeType: null };
+  }
+
+  // 3. Якщо повідомлення новіше, перевіряємо чи змінився контент
+  if (existingMsgId) {
+    const existingSchedule = getScheduleByDate(data.date);
+    if (schedulesAreEqual(data.queues, existingSchedule)) {
+      // Контент той самий, просто оновлюємо ID повідомлення (щоб знати що ми "бачили" новіше)
+      const updateMetadataIdOnly = db.prepare(`
+        UPDATE schedule_metadata
+        SET source_msg_id = ?, message_date = ?
+        WHERE date = ?
+      `);
+      updateMetadataIdOnly.run(sourceMsgId, messageDate, data.date);
+
+      Logger.debug('Database', `Skipped ${data.date} - content identical (post ${existingMsgId} → ${sourceMsgId})`);
+      return { updated: false, changeType: null };
+    }
   }
 
   const now = new Date().toISOString();
@@ -122,10 +146,6 @@ export function insertParsedSchedule(data, sourceMsgId, messageDate = null) {
   const insertHistory = db.prepare(`
     INSERT INTO schedule_history (date, source_msg_id, change_type, message_date, data_json)
     VALUES (?, ?, ?, ?, ?)
-  `);
-
-  const getMetadata = db.prepare(`
-    SELECT * FROM schedule_metadata WHERE date = ?
   `);
 
   const insertMetadata = db.prepare(`
@@ -155,7 +175,6 @@ export function insertParsedSchedule(data, sourceMsgId, messageDate = null) {
     insertHistory.run(date, msgId, chgType, msgDate, historyData);
 
     // Оновлюємо або створюємо метадані
-    const metadata = getMetadata.get(date);
     if (metadata) {
       updateMetadata.run(msgId, msgDate, now, chgType, date);
     } else {
@@ -172,6 +191,37 @@ export function insertParsedSchedule(data, sourceMsgId, messageDate = null) {
   }
 
   return { updated: true, changeType, messageDate }; // Дані оновлені
+}
+
+function schedulesAreEqual(newQueues, existingOutages) {
+  // Flatten newQueues
+  const newFlat = [];
+  for (const q of newQueues) {
+    for (const i of q.intervals) {
+      newFlat.push({ queue: q.queue, start: i.start, end: i.end });
+    }
+  }
+
+  // Map existingOutages to same format
+  const existingFlat = existingOutages.map(o => ({
+    queue: o.queue,
+    start: o.start_time,
+    end: o.end_time
+  }));
+
+  if (newFlat.length !== existingFlat.length) return false;
+
+  // Sort both
+  const sortFn = (a, b) => {
+    if (a.queue !== b.queue) return a.queue.localeCompare(b.queue);
+    if (a.start !== b.start) return a.start.localeCompare(b.start);
+    return a.end.localeCompare(b.end);
+  };
+
+  newFlat.sort(sortFn);
+  existingFlat.sort(sortFn);
+
+  return JSON.stringify(newFlat) === JSON.stringify(existingFlat);
 }
 
 export function getScheduleByDate(date) {
