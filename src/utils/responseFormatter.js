@@ -83,12 +83,12 @@ export class ResponseFormatter {
   }
 
   static formatUpdatedSchedule(schedule) {
-    const updateTime = new Date(schedule.last_updated_at);
+    const updateTime = new Date(schedule.message_date || schedule.last_updated_at);
     const timeStr = updateTime.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
 
     return {
       date: schedule.date,
-      updatedAt: schedule.last_updated_at,
+      updatedAt: schedule.message_date || schedule.last_updated_at,
       messageDate: schedule.message_date,
       sourcePostId: schedule.source_msg_id,
       updateCount: schedule.update_count,
