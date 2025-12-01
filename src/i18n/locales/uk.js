@@ -73,8 +73,8 @@ export default {
   schedule: {
     todayAvailable: 'Графік на сьогодні доступний',
     todayNotAvailable: 'Графік на сьогодні ще не опублікований',
-    newScheduleAvailable: '📅 Доступний графік за {{date}}',
-    scheduleUpdated: '⚠️ Увага! Внесено зміни за {{date}} о {{time}}',
+    newScheduleAvailable: 'Доступний графік за {{date}}',
+    scheduleUpdated: 'Увага! Внесено зміни за {{date}} о {{time}}',
   },
 
   months: {

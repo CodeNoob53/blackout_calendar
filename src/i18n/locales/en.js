@@ -73,8 +73,8 @@ export default {
   schedule: {
     todayAvailable: 'Today\'s schedule is available',
     todayNotAvailable: 'Today\'s schedule not yet published',
-    newScheduleAvailable: '📅 Schedule for {{date}} is available',
-    scheduleUpdated: '⚠️ Attention! Changes made to {{date}} at {{time}}',
+    newScheduleAvailable: 'Schedule for {{date}} is available',
+    scheduleUpdated: 'Attention! Changes made to {{date}} at {{time}}',
   },
 
   months: {
