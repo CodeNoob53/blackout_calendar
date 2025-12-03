@@ -6,6 +6,7 @@ import { dirname } from "path";
 import config from "./config/index.js";
 import { initDatabase } from "./db.js";
 import { updateFromTelegram } from "./scraper/telegramScraper.js";
+import { updateFromZoe } from "./scraper/zoeScraper.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
 import updateRoutes from "./routes/updateRoutes.js";
 import addressRoutes from "./routes/addressRoutes.js";
@@ -136,9 +137,24 @@ class AutoUpdateService {
   async performUpdate(source = "scheduled") {
     Logger.cron(`Starting ${source} update...`);
     try {
-      const result = await updateFromTelegram();
-      Logger.updateSummary(result);
-      return result;
+      // Спочатку оновлюємо з Telegram (пріоритетне джерело)
+      const telegramResult = await updateFromTelegram();
+      Logger.updateSummary(telegramResult);
+      
+      // Потім оновлюємо з zoe.com.ua (якщо увімкнено)
+      if (config.autoUpdate.enableZoe) {
+        try {
+          const zoeResult = await updateFromZoe();
+          if (zoeResult.updated > 0) {
+            Logger.info('Scheduler', `Zoe: ${zoeResult.updated} updated, ${zoeResult.skipped} skipped, ${zoeResult.invalid} invalid`);
+          }
+        } catch (zoeError) {
+          // Не зупиняємо процес якщо zoe не працює
+          Logger.warning('Scheduler', 'Zoe scraper failed (non-critical)', zoeError);
+        }
+      }
+      
+      return telegramResult;
     } catch (error) {
       Logger.error('Scheduler', `${source} update failed`, error);
       throw error;
