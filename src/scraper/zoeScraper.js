@@ -143,9 +143,42 @@ export async function fetchZoeUpdates() {
 }
 
 /**
+ * Витягує час оновлення з заголовка "(оновлено о XX:XX)"
+ * Повертає ISO timestamp для вказаної дати з вказаним часом
+ * @param {string} text - Текст для пошуку часу
+ * @param {string} scheduleDate - Дата графіка в форматі YYYY-MM-DD (опціонально)
+ */
+function extractUpdateTime(text, scheduleDate = null) {
+  // Шукаємо "(оновлено о 21:34)" або "(оновлено о 21:34)"
+  const timeMatch = text.match(/\(оновлено\s+о\s+(\d{1,2}):(\d{2})\)/i);
+
+  if (timeMatch) {
+    const hours = parseInt(timeMatch[1], 10);
+    const minutes = parseInt(timeMatch[2], 10);
+
+    // Створюємо дату з вказаним часом (київський час UTC+2)
+    let updateDate;
+    if (scheduleDate) {
+      // Використовуємо дату графіка
+      const [year, month, day] = scheduleDate.split('-').map(Number);
+      updateDate = new Date(year, month - 1, day, hours, minutes, 0);
+    } else {
+      // Використовуємо сьогоднішню дату
+      const now = new Date();
+      updateDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0);
+    }
+
+    Logger.info('ZoeScraper', `✓ Extracted time from Zoe header: ${hours}:${minutes}`);
+    return updateDate.toISOString();
+  }
+
+  return null;
+}
+
+/**
  * Парсити графіки з HTML zoe.com.ua
  * Структура може бути різною, тому потрібна гнучка обробка
- * 
+ *
  * Примітка: Якщо на сайті публікують неадекватні графіки (як 12 листопада),
  * валідація відфільтрує їх автоматично
  */
@@ -154,7 +187,8 @@ export function parseZoeHTML(html) {
 
   const $ = cheerio.load(html);
   const schedules = [];
-  const seenDates = new Set(); // Щоб уникнути дублікатів
+  const seenDates = new Map(); // Змінено на Map щоб зберігати індекс графіка для оновлення
+  const dateUpdateTimes = new Map(); // Зберігаємо час оновлення для кожної дати
 
   try {
     // Стратегія: Розбиваємо сторінку на блоки за заголовками
@@ -168,7 +202,29 @@ export function parseZoeHTML(html) {
 
     headers.each((_, el) => {
       const $header = $(el);
-      let content = $header.text();
+      const headerText = $header.text();
+
+      // Спочатку витягуємо дату з заголовка, щоб використати її для extractUpdateTime
+      const headerParsed = parseScheduleMessage(headerText);
+      const headerDate = headerParsed?.date;
+
+      // Витягуємо час оновлення з заголовка або батьківського елемента
+      // (час може бути поза тегом <strong>, наприклад: <strong>...</strong> (оновлено о 21:34))
+      let updateTime = extractUpdateTime(headerText, headerDate);
+      if (!updateTime && $header.parent().length) {
+        const parentText = $header.parent().text();
+        updateTime = extractUpdateTime(parentText, headerDate);
+      }
+
+      // Якщо знайшли час оновлення і дату, зберігаємо час для цієї дати
+      if (updateTime && headerDate) {
+        // Зберігаємо або оновлюємо час для цієї дати (зберігаємо найпізніший)
+        if (!dateUpdateTimes.has(headerDate) || new Date(updateTime) > new Date(dateUpdateTimes.get(headerDate))) {
+          dateUpdateTimes.set(headerDate, updateTime);
+        }
+      }
+
+      let content = headerText;
 
       // Збираємо весь текст до наступного заголовка
       let $next = $header.next();
@@ -195,13 +251,33 @@ export function parseZoeHTML(html) {
           // Генеруємо унікальний ключ для дати та кількості черг, щоб розрізняти оновлення
           const key = `${parsed.date}-${parsed.queues.length}-${JSON.stringify(parsed.queues[0])}`;
 
+          // Визначаємо messageDate: спочатку з поточного заголовка, якщо немає - з dateUpdateTimes
+          let finalUpdateTime = updateTime;
+          if (!finalUpdateTime && dateUpdateTimes.has(parsed.date)) {
+            finalUpdateTime = dateUpdateTimes.get(parsed.date);
+          }
+
+          const newSchedule = {
+            parsed,
+            source: 'zoe',
+            messageDate: finalUpdateTime, // Час оновлення з заголовка "(оновлено о XX:XX)"
+            rawText: content.substring(0, 300)
+          };
+
           if (!seenDates.has(key)) {
-            seenDates.add(key);
-            schedules.push({
-              parsed,
-              source: 'zoe',
-              rawText: content.substring(0, 300)
-            });
+            // Новий графік - додаємо
+            const index = schedules.length;
+            schedules.push(newSchedule);
+            seenDates.set(key, index);
+          } else {
+            // Дублікат - але якщо новий має messageDate, а старий ні, то замінюємо
+            const existingIndex = seenDates.get(key);
+            const existingSchedule = schedules[existingIndex];
+
+            if (finalUpdateTime && !existingSchedule.messageDate) {
+              // Новий графік має час, а старий ні - замінюємо
+              schedules[existingIndex] = newSchedule;
+            }
           }
         }
       }
@@ -252,14 +328,15 @@ function validateSchedule(parsed) {
     return { valid: false, reason: 'Invalid date format' };
   }
 
-  // Перевіряємо чи дата не в минулому (більше ніж 7 днів назад)
+  // Перевіряємо чи дата не в минулому (лайнографік)
+  // Дозволяємо тільки сьогодні та майбутні дати
   const scheduleDate = new Date(parsed.date);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const daysDiff = (scheduleDate - today) / (1000 * 60 * 60 * 24);
 
-  if (daysDiff < -7) {
-    return { valid: false, reason: 'Date too old' };
+  if (daysDiff < 0) {
+    return { valid: false, reason: 'Lineograph - date in the past' };
   }
 
   // Перевіряємо чи є хоча б одна черга з інтервалами
@@ -333,7 +410,7 @@ export async function updateFromZoe() {
   const newSchedules = [];
   const updatedSchedules = [];
 
-  for (const { parsed, source, rawText } of parsedSchedules) {
+  for (const { parsed, source, messageDate, rawText } of parsedSchedules) {
     // Валідуємо графік
     const validation = validateSchedule(parsed);
 
@@ -350,8 +427,9 @@ export async function updateFromZoe() {
     // Перевіряємо чи вже є дані для цієї дати
     const metadata = getScheduleMetadata(parsed.date);
 
-    // Вставляємо дані з zoe
-    const result = insertParsedSchedule(parsed, zoeSourceId, new Date().toISOString(), 'zoe');
+    // Вставляємо дані з zoe, використовуючи messageDate з заголовка "(оновлено о XX:XX)"
+    // Якщо messageDate немає (старий формат), використовуємо поточний час
+    const result = insertParsedSchedule(parsed, zoeSourceId, messageDate || new Date().toISOString(), 'zoe');
 
     if (!result.updated) {
       skipped++;

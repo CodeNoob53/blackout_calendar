@@ -417,22 +417,23 @@ export function getNewSchedules(hoursAgo = 24) {
   return stmt.all(today, since, since);
 }
 
-// Отримати ТІЛЬКИ ОДНЕ останнє оновлення графіку на СЬОГОДНІ
-// Для push: "Увага! Поточний графік змінено о 14:30"
+// Отримати ОСТАННЄ оновлення графіку за останні N годин
+// Повертає найсвіжіше оновлення тільки для сьогодні та майбутніх дат
+// (виключає лайнографіки - оновлення графіків з минулими датами)
 export function getUpdatedSchedules(hoursAgo = 24) {
   const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
   const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
   const stmt = db.prepare(`
     SELECT * FROM schedule_metadata
-    WHERE date = ?
-      AND change_type = 'updated'
+    WHERE change_type = 'updated'
       AND last_updated_at > ?
+      AND date >= ?
     ORDER BY last_updated_at DESC
     LIMIT 1
   `);
 
-  return stmt.all(today, since);
+  return stmt.all(since, today);
 }
 
 // ========== Функції для роботи з адресами ==========
