@@ -179,12 +179,18 @@ async function fetchAllZoeUpdates() {
   const parsedSchedules = parseZoeHTML(html);
 
   // Конвертуємо в формат апдейтів
-  const updates = parsedSchedules.map(schedule => ({
-    sourceId: Date.now() + Math.random(), // Унікальний ID для Zoe
-    source: 'zoe',
-    messageDate: schedule.messageDate || null, // Час оновлення з заголовка "(оновлено о XX:XX)"
-    parsed: schedule.parsed
-  }));
+  const updates = parsedSchedules.map(schedule => {
+    // Генеруємо стабільний sourceId на основі дати (YYYYMMDD)
+    // Наприклад: 2025-12-04 -> 20251204
+    const dateId = parseInt(schedule.parsed.date.replace(/-/g, ''), 10);
+
+    return {
+      sourceId: dateId, // Стабільний ID на основі дати
+      source: 'zoe',
+      messageDate: schedule.messageDate || null, // Час оновлення з заголовка "(оновлено о XX:XX)"
+      parsed: schedule.parsed
+    };
+  });
 
   Logger.info('SyncEngine', `Fetched ${updates.length} Zoe updates`);
   return updates;
@@ -221,6 +227,39 @@ function writeSyncedData(date, timeline) {
   // Фінальний апдейт = останній в timeline
   const finalUpdate = timeline[timeline.length - 1];
   const updateCount = timeline.length;
+
+  // Перевіряємо чи існують дані в БД і чи вони змінились
+  const existingMetadata = db.prepare('SELECT * FROM schedule_metadata WHERE date = ?').get(date);
+
+  if (existingMetadata) {
+    // Отримуємо існуючі outages для порівняння
+    const existingOutages = db.prepare('SELECT queue, start_time, end_time FROM outages WHERE date = ? ORDER BY queue, start_time').all(date);
+
+    // Конвертуємо в формат queues для порівняння
+    const existingQueues = [];
+    const queueMap = new Map();
+
+    for (const outage of existingOutages) {
+      if (!queueMap.has(outage.queue)) {
+        queueMap.set(outage.queue, { queue: outage.queue, intervals: [] });
+      }
+      queueMap.get(outage.queue).intervals.push({
+        start: outage.start_time,
+        end: outage.end_time
+      });
+    }
+
+    queueMap.forEach(q => existingQueues.push(q));
+
+    // Порівнюємо контент
+    const existingContent = normalizeQueuesForComparison(existingQueues);
+    const newContent = normalizeQueuesForComparison(finalUpdate.parsed.queues);
+
+    if (existingContent === newContent) {
+      Logger.debug('SyncEngine', `No content changes for ${date}, skipping write`);
+      return { updated: false, reason: 'no-changes' };
+    }
+  }
 
   Logger.info('SyncEngine', `Writing synced data for ${date}: ${updateCount} updates, final from ${finalUpdate.source}`);
 
@@ -362,6 +401,8 @@ async function syncUpdates(telegramUpdates, zoeUpdates) {
       });
     } else {
       results.skipped++;
+      const reason = result.reason || 'no-updates';
+      Logger.debug('SyncEngine', `Skipped ${date}: ${reason}`);
     }
   }
 
