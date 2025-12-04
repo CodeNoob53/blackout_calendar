@@ -3,6 +3,7 @@ import { parseScheduleMessage } from "./parser.js";
 import { insertParsedSchedule } from "../db.js";
 import config from "../config/index.js";
 import cache from "../utils/cache.js";
+import Logger from "../utils/logger.js";
 
 const CHANNEL_URL = config.telegram.channelUrl;
 
@@ -33,6 +34,8 @@ export async function fetchTelegramUpdates() {
 }
 
 export async function updateFromTelegram() {
+  Logger.info('TgScraper', 'Fetching updates from Telegram channel...');
+
   const msgs = await fetchTelegramUpdates();
 
   // Беремо тільки повідомлення з ключовими словами
@@ -56,6 +59,8 @@ export async function updateFromTelegram() {
     }
   }
 
+  Logger.info('TgScraper', `Found ${parsedMessages.length} potential schedules`);
+
   // Сортуємо за ID (від старих до нових), щоб обробляти оновлення в правильному порядку
   parsedMessages.sort((a, b) => a.msgId - b.msgId);
 
@@ -66,7 +71,7 @@ export async function updateFromTelegram() {
   const updatedSchedules = [];
 
   for (const { msgId, parsed, messageDate } of parsedMessages) {
-    const result = insertParsedSchedule(parsed, msgId, messageDate);
+    const result = insertParsedSchedule(parsed, msgId, messageDate, 'telegram');
 
     if (!result.updated) {
       skipped++;
@@ -102,7 +107,7 @@ export async function updateFromTelegram() {
     }
   }
 
-  // Лог буде виведено через Logger.updateSummary() у server.js
+  Logger.info('TgScraper', `Processed: ${parsedMessages.length} total, ${updated} updated, ${skipped} skipped`);
 
   // Інвалідуємо кеш після оновлення даних
   if (updated > 0) {

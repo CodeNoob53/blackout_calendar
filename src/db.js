@@ -44,6 +44,7 @@ export function initDatabase() {
     CREATE TABLE IF NOT EXISTS schedule_metadata (
       date TEXT PRIMARY KEY,
       source_msg_id INTEGER NOT NULL,
+      source TEXT DEFAULT 'telegram',
       message_date DATETIME,
       first_published_at DATETIME NOT NULL,
       last_updated_at DATETIME NOT NULL,
@@ -71,6 +72,7 @@ export function initDatabase() {
 
   Logger.db(`Initialized at ${dbPath}`);
 
+
   // Міграція: додаємо колонки updated_at і created_at якщо їх немає
   const tableInfo = db.prepare("PRAGMA table_info(outages)").all();
   const hasCreatedAt = tableInfo.some(col => col.name === 'created_at');
@@ -85,6 +87,17 @@ export function initDatabase() {
     db.exec(`ALTER TABLE outages ADD COLUMN updated_at DATETIME`);
     Logger.success('Database', 'Migration: Added updated_at column');
   }
+
+  // Міграція: додаємо колонку source до schedule_metadata якщо її немає
+  const metadataInfo = db.prepare("PRAGMA table_info(schedule_metadata)").all();
+  const hasSource = metadataInfo.some(col => col.name === 'source');
+
+  if (!hasSource) {
+    db.exec(`ALTER TABLE schedule_metadata ADD COLUMN source TEXT DEFAULT 'telegram'`);
+    // Оновлюємо існуючі записи: якщо ID < 1000000000 то це Telegram, інакше Zoe
+    db.exec(`UPDATE schedule_metadata SET source = CASE WHEN source_msg_id < 1000000000 THEN 'telegram' ELSE 'zoe' END WHERE source IS NULL`);
+    Logger.success('Database', 'Migration: Added source column to schedule_metadata');
+  }
 }
 
 export function getSourceMessageId(date) {
@@ -98,19 +111,38 @@ export function getSourceMessageId(date) {
   return result?.source_msg_id ?? null;
 }
 
-export function insertParsedSchedule(data, sourceMsgId, messageDate = null) {
+export function insertParsedSchedule(data, sourceMsgId, messageDate = null, source = 'telegram') {
   const metadata = getScheduleMetadata(data.date);
   const existingMsgId = metadata?.source_msg_id;
+  const existingSource = metadata?.source || 'telegram';
+
+  // Визначаємо тип ID: Telegram (малі числа) vs Zoe (timestamp)
+  const isNewFromTelegram = source === 'telegram';
+  const isExistingFromTelegram = existingSource === 'telegram';
 
   // 1. Якщо повідомлення старіше за те, що ми вже обробили - ігноруємо
-  if (existingMsgId && sourceMsgId < existingMsgId) {
-    Logger.debug('Database', `Skipped ${data.date} - older post ${sourceMsgId} < ${existingMsgId}`);
-    return { updated: false, changeType: null };
+  if (existingMsgId) {
+    // Якщо обидва з одного джерела - просте порівняння
+    if (isNewFromTelegram === isExistingFromTelegram) {
+      if (sourceMsgId < existingMsgId) {
+        // Старіше повідомлення, пропускаємо
+        return { updated: false, changeType: null };
+      }
+    }
+    // Якщо з різних джерел - порівнюємо за часом публікації (messageDate)
+    else if (messageDate && metadata.message_date) {
+      const newTime = new Date(messageDate).getTime();
+      const existingTime = new Date(metadata.message_date).getTime();
+      if (newTime < existingTime) {
+        // Старіше оновлення, пропускаємо
+        return { updated: false, changeType: null };
+      }
+    }
   }
 
-  // 2. Якщо це те саме повідомлення - ігноруємо
-  if (existingMsgId === sourceMsgId) {
-    Logger.debug('Database', `Skipped ${data.date} - already up to date (post ${sourceMsgId})`);
+  // 2. Якщо це те саме повідомлення з того самого джерела - ігноруємо
+  if (existingMsgId === sourceMsgId && existingSource === source) {
+    // Те саме повідомлення, пропускаємо
     return { updated: false, changeType: null };
   }
 
@@ -126,7 +158,7 @@ export function insertParsedSchedule(data, sourceMsgId, messageDate = null) {
       `);
       updateMetadataIdOnly.run(sourceMsgId, messageDate, data.date);
 
-      Logger.debug('Database', `Skipped ${data.date} - content identical (post ${existingMsgId} → ${sourceMsgId})`);
+      // Контент ідентичний, пропускаємо
       return { updated: false, changeType: null };
     }
   }
@@ -149,17 +181,17 @@ export function insertParsedSchedule(data, sourceMsgId, messageDate = null) {
   `);
 
   const insertMetadata = db.prepare(`
-    INSERT INTO schedule_metadata (date, source_msg_id, message_date, first_published_at, last_updated_at, update_count, change_type)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO schedule_metadata (date, source_msg_id, source, message_date, first_published_at, last_updated_at, update_count, change_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const updateMetadata = db.prepare(`
     UPDATE schedule_metadata
-    SET source_msg_id = ?, message_date = ?, last_updated_at = ?, update_count = update_count + 1, change_type = ?
+    SET source_msg_id = ?, source = ?, message_date = ?, last_updated_at = ?, update_count = update_count + 1, change_type = ?
     WHERE date = ?
   `);
 
-  const upsertSchedule = db.transaction((date, queues, msgId, msgDate, chgType) => {
+  const upsertSchedule = db.transaction((date, queues, msgId, msgDate, chgType, src) => {
     // Спочатку видаляємо всі старі записи для цієї дати
     deleteStmt.run(date);
 
@@ -171,23 +203,23 @@ export function insertParsedSchedule(data, sourceMsgId, messageDate = null) {
     }
 
     // Зберігаємо в історію
-    const historyData = JSON.stringify({ date, queues, source_msg_id: msgId });
+    const historyData = JSON.stringify({ date, queues, source_msg_id: msgId, source: src });
     insertHistory.run(date, msgId, chgType, msgDate, historyData);
 
     // Оновлюємо або створюємо метадані
     if (metadata) {
-      updateMetadata.run(msgId, msgDate, now, chgType, date);
+      updateMetadata.run(msgId, src, msgDate, now, chgType, date);
     } else {
-      insertMetadata.run(date, msgId, msgDate, now, now, 0, chgType);
+      insertMetadata.run(date, msgId, src, msgDate, now, now, 0, chgType);
     }
   });
 
-  upsertSchedule(data.date, data.queues, sourceMsgId, messageDate, changeType);
+  upsertSchedule(data.date, data.queues, sourceMsgId, messageDate, changeType, source);
 
   if (existingMsgId) {
-    Logger.success('Database', `Updated ${data.date} (${data.queues.length} queues) post ${existingMsgId} → ${sourceMsgId}`);
+    Logger.success('Database', `Updated ${data.date} from ${source} (${data.queues.length} queues) ${existingSource} ${existingMsgId} → ${source} ${sourceMsgId}`);
   } else {
-    Logger.success('Database', `New schedule ${data.date} (${data.queues.length} queues) post ${sourceMsgId}`);
+    Logger.success('Database', `New schedule ${data.date} from ${source} (${data.queues.length} queues) post ${sourceMsgId}`);
   }
 
   return { updated: true, changeType, messageDate }; // Дані оновлені

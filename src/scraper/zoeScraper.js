@@ -261,8 +261,7 @@ export async function updateFromZoe() {
     const validation = validateSchedule(parsed);
 
     if (!validation.valid) {
-      Logger.warning('ZoeScraper', `Invalid schedule for ${parsed.date}: ${validation.reason}`);
-      Logger.debug('ZoeScraper', `Raw text: ${rawText}`);
+      // Пропускаємо невалідні графіки (зазвичай старі дати)
       invalid++;
       continue;
     }
@@ -271,18 +270,11 @@ export async function updateFromZoe() {
     // Telegram ID - це малі числа (наприклад 2537), а timestamp - великі (1700000000000)
     const zoeSourceId = Date.now();
 
-    // Перевіряємо чи вже є дані з Telegram для цієї дати
+    // Перевіряємо чи вже є дані для цієї дати
     const metadata = getScheduleMetadata(parsed.date);
 
-    // Якщо є дані з Telegram (ID < 1000000000), пропускаємо, бо Telegram має пріоритет
-    if (metadata && metadata.source_msg_id < 1000000000) {
-      Logger.debug('ZoeScraper', `Skipped ${parsed.date} - Telegram data exists (priority)`);
-      skipped++;
-      continue;
-    }
-
     // Вставляємо дані з zoe
-    const result = insertParsedSchedule(parsed, zoeSourceId, new Date().toISOString());
+    const result = insertParsedSchedule(parsed, zoeSourceId, new Date().toISOString(), 'zoe');
 
     if (!result.updated) {
       skipped++;

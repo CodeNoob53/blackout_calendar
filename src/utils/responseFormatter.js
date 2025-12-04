@@ -42,6 +42,7 @@ export class ResponseFormatter {
   static formatMetadata(metadata) {
     return {
       date: metadata.date,
+      source: metadata.source || 'telegram',
       lastUpdated: metadata.last_updated_at,
       firstPublished: metadata.first_published_at,
       updateCount: metadata.update_count,
@@ -64,6 +65,7 @@ export class ResponseFormatter {
   static formatUpdate(update) {
     return {
       date: update.date,
+      source: update.source || 'telegram',
       lastUpdated: update.last_updated_at,
       changeType: update.change_type,
       updateCount: update.update_count,
@@ -73,26 +75,37 @@ export class ResponseFormatter {
   }
 
   static formatNewSchedule(schedule) {
+    const source = schedule.source || 'telegram';
+    const sourceText = source === 'telegram'
+      ? 'офіційний Telegram канал АТ "Запоріжжяобленерго"'
+      : 'офіційний сайт zoe.com.ua';
+
     return {
       date: schedule.date,
+      source: source,
       publishedAt: schedule.first_published_at,
       messageDate: schedule.message_date,
       sourcePostId: schedule.source_msg_id,
-      pushMessage: `📅 Доступний графік за ${this.formatDateUkrainian(schedule.date)}`
+      pushMessage: `Доступний графік за ${this.formatDateUkrainian(schedule.date)}\n Джерело: ${sourceText}`
     };
   }
 
   static formatUpdatedSchedule(schedule) {
     const updateTime = new Date(schedule.message_date || schedule.last_updated_at);
     const timeStr = updateTime.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+    const source = schedule.source || 'telegram';
+    const sourceText = source === 'telegram'
+      ? 'офіційний Telegram канал АТ "Запоріжжяобленерго"'
+      : 'офіційний сайт zoe.com.ua';
 
     return {
       date: schedule.date,
+      source: source,
       updatedAt: schedule.message_date || schedule.last_updated_at,
       messageDate: schedule.message_date,
       sourcePostId: schedule.source_msg_id,
       updateCount: schedule.update_count,
-      pushMessage: `⚠️ Увага! Внесено зміни за ${this.formatDateUkrainian(schedule.date)} о ${timeStr}`
+      pushMessage: `Увага! Внесено зміни за ${this.formatDateUkrainian(schedule.date)} о ${timeStr}\n Джерело: ${sourceText}`
     };
   }
 

@@ -33,7 +33,19 @@ class Logger {
 
   static formatPrefix(type, label) {
     const timestamp = this.colorize(`[${this.getTimestamp()}]`, 'gray');
-    const labelFormatted = this.colorize(`[${label}]`, 'bright');
+
+    // Кольори для різних компонентів
+    const labelColors = {
+      'Scheduler': 'cyan',
+      'TgScraper': 'blue',
+      'ZoeScraper': 'green',
+      'Database': 'magenta',
+      'Server': 'yellow',
+      'API': 'white'
+    };
+
+    const labelColor = labelColors[label] || 'bright';
+    const labelFormatted = this.colorize(`[${label}]`, labelColor);
 
     const icons = {
       info: this.colorize('ℹ', 'blue'),
@@ -141,7 +153,7 @@ class Logger {
   static banner(title, version, env) {
     console.log('\n' + this.colorize('═'.repeat(60), 'cyan'));
     console.log(this.colorize(`  🚀 ${title}`, 'cyan') +
-                (version ? this.colorize(` v${version}`, 'bright') : ''));
+      (version ? this.colorize(` v${version}`, 'bright') : ''));
     if (env) {
       console.log(this.colorize(`  Environment: ${env}`, 'gray'));
     }
