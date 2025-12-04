@@ -1,6 +1,6 @@
 {
   "name": "powerapp-backend",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Backend service for power outage schedule parser (Telegram-source) and public schedule API for Zaporizhzhya region.",
   "type": "module",
   "main": "src/server.js",

@@ -168,7 +168,6 @@ function extractUpdateTime(text, scheduleDate = null) {
       updateDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0);
     }
 
-    Logger.info('ZoeScraper', `✓ Extracted time from Zoe header: ${hours}:${minutes}`);
     return updateDate.toISOString();
   }
 
