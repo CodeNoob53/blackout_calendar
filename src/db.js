@@ -343,18 +343,13 @@ export function getNewSchedules(hoursAgo = 24) {
 
   const stmt = db.prepare(`
     SELECT * FROM schedule_metadata
-    WHERE (
-      -- Майбутні дати (завтра і далі): нові або оновлені
-      (date > ? AND (first_published_at > ? OR (change_type = 'updated' AND last_updated_at > ?)))
-      OR
-      -- Сьогодні: тільки нові (пізня публікація)
-      (date = ? AND change_type = 'new' AND first_published_at > ?)
-    )
+    WHERE date > ? 
+      AND (first_published_at > ? OR (change_type = 'updated' AND last_updated_at > ?))
     ORDER BY date DESC, COALESCE(last_updated_at, first_published_at) DESC
     LIMIT 1
   `);
 
-  return stmt.all(today, since, since, today, since);
+  return stmt.all(today, since, since);
 }
 
 // Отримати ТІЛЬКИ ОДНЕ останнє оновлення графіку на СЬОГОДНІ

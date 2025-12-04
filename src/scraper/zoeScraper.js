@@ -5,8 +5,9 @@ import { insertParsedSchedule, getScheduleMetadata } from "../db.js";
 import config from "../config/index.js";
 import cache from "../utils/cache.js";
 import Logger from "../utils/logger.js";
+import https from "https";
 
-const ZOE_URL = "https://www.zoe.com.ua/графіки-погодних-стабілізаційних/";
+const ZOE_URL = "https://www.zoe.com.ua/%D0%B3%D1%80%D0%B0%D1%84%D1%96%D0%BA%D0%B8-%D0%BF%D0%BE%D0%B3%D0%BE%D0%B4%D0%B8%D0%BD%D0%BD%D0%B8%D1%85-%D1%81%D1%82%D0%B0%D0%B1%D1%96%D0%BB%D1%96%D0%B7%D0%B0%D1%86%D1%96%D0%B9%D0%BD%D0%B8%D1%85/";
 
 /**
  * Отримати HTML з сайту zoe.com.ua
@@ -14,29 +15,32 @@ const ZOE_URL = "https://www.zoe.com.ua/графіки-погодних-стаб
  */
 export async function fetchZoeUpdates() {
   try {
+    const agent = new https.Agent({
+      rejectUnauthorized: false
+    });
+
     const response = await axios.get(ZOE_URL, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Referer': 'https://www.zoe.com.ua/'
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
       },
+      httpsAgent: agent,
       timeout: 30000, // 30 секунд
       maxRedirects: 5,
       validateStatus: function (status) {
         return status >= 200 && status < 300; // axios вважає помилкою тільки статуси < 200 або >= 300
       }
     });
-    
+
     const html = response.data;
-    
+
     if (!html || typeof html !== 'string' || html.length < 100) {
       throw new Error('Received empty or too short HTML response');
     }
-    
+
     return html;
   } catch (error) {
     // Детальніше логування помилки
@@ -76,84 +80,78 @@ export function parseZoeHTML(html) {
   const seenDates = new Set(); // Щоб уникнути дублікатів
 
   try {
-    // Шукаємо статті або блоки з графіками
-    // Можливі селектори (потрібно адаптувати під реальну структуру):
-    // - .article, .post, .entry-content, .content
-    // - таблиці з графіками
-    // - блоки з текстом
-    
-    // Варіант 1: Шукаємо в статтях та контентних блоках
-    $('article, .post, .entry-content, .content, .post-content, main').each((_, el) => {
-      const $el = $(el);
-      const text = $el.text();
-      
-      // Перевіряємо чи є графіки (ключові слова)
-      if (text.includes('ГПВ') || text.includes('Години відсутності') || 
-          text.includes('Черга') || text.includes('графік') || 
-          text.match(/\d\.\d\s*:/)) { // Паттерн черги типу "1.1:"
-        
-        const parsed = parseScheduleMessage(text);
-        if (parsed.date && parsed.queues.length > 0 && !seenDates.has(parsed.date)) {
-          seenDates.add(parsed.date);
-          schedules.push({
-            parsed,
-            source: 'zoe',
-            rawText: text.substring(0, 300) // Зберігаємо трохи тексту для дебагу
-          });
-        }
-      }
+    // Стратегія: Розбиваємо сторінку на блоки за заголовками
+    // Заголовки зазвичай містять дату, наприклад "ГПВ НА 06 ЛИСТОПАДА"
+    // Шукаємо h1-h6 та strong, які можуть бути заголовками
+    const headers = $('h1, h2, h3, h4, h5, h6, strong, b').filter((_, el) => {
+      const text = $(el).text().trim();
+      return (text.includes('ГПВ') || text.includes('графік') || text.includes('відключен')) &&
+        (text.match(/\d{1,2}/) || text.includes('сьогодні') || text.includes('завтра'));
     });
 
-    // Варіант 2: Шукаємо в таблицях (якщо графіки в таблицях)
-    $('table').each((_, el) => {
-      const $table = $(el);
-      const text = $table.text();
-      
-      if (text.includes('Черга') || text.includes('Години')) {
-        // Парсимо таблицю
-        const rows = [];
-        $table.find('tr').each((_, row) => {
-          const cells = [];
-          $(row).find('td, th').each((_, cell) => {
-            cells.push($(cell).text().trim());
-          });
-          if (cells.length > 0) {
-            rows.push(cells);
+    headers.each((_, el) => {
+      const $header = $(el);
+      let content = $header.text();
+
+      // Збираємо весь текст до наступного заголовка
+      let $next = $header.next();
+      while ($next.length && !$next.is('h1, h2, h3, h4, h5, h6, strong, b')) {
+        content += '\n' + $next.text();
+        $next = $next.next();
+      }
+
+      // Також перевіряємо батьківський елемент, якщо заголовок всередині p або div
+      if ($header.parent().is('p, div') && $header.parent().text().length > $header.text().length + 50) {
+        content += '\n' + $header.parent().text();
+      }
+
+      // Очищаємо текст від зайвих пробілів
+      content = content.replace(/\s+/g, ' ').trim();
+
+      if (content.includes('ГПВ') || content.includes('Черга') || content.match(/\d\.\d\s*:/)) {
+        const parsed = parseScheduleMessage(content);
+
+        // Додаткова перевірка: якщо дата не знайдена в блоці, але є в заголовку
+        // extractDate має це обробляти, але про всяк випадок
+
+        if (parsed.date && parsed.queues.length > 0) {
+          // Генеруємо унікальний ключ для дати та кількості черг, щоб розрізняти оновлення
+          const key = `${parsed.date}-${parsed.queues.length}-${JSON.stringify(parsed.queues[0])}`;
+
+          if (!seenDates.has(key)) {
+            seenDates.add(key);
+            schedules.push({
+              parsed,
+              source: 'zoe',
+              rawText: content.substring(0, 300)
+            });
           }
-        });
-        
-        // Спробуємо знайти дату в заголовку таблиці або навколо неї
-        const tableContext = $table.parent().text();
-        const parsed = parseScheduleMessage(tableContext);
-        
-        if (parsed.date && parsed.queues.length > 0 && !seenDates.has(parsed.date)) {
-          seenDates.add(parsed.date);
-          schedules.push({
-            parsed,
-            source: 'zoe',
-            rawText: text.substring(0, 300)
-          });
         }
       }
     });
 
-    // Варіант 3: Шукаємо в блоках з класами, що містять "schedule", "graph", "outage"
-    $('[class*="schedule"], [class*="graph"], [class*="outage"], [class*="графік"]').each((_, el) => {
-      const $el = $(el);
-      const text = $el.text();
-      
-      if (text.includes('ГПВ') || text.includes('Черга') || text.match(/\d\.\d\s*:/)) {
-        const parsed = parseScheduleMessage(text);
-        if (parsed.date && parsed.queues.length > 0 && !seenDates.has(parsed.date)) {
-          seenDates.add(parsed.date);
-          schedules.push({
-            parsed,
-            source: 'zoe',
-            rawText: text.substring(0, 300)
-          });
+    // Якщо нічого не знайшли за заголовками, спробуємо старий метод (пошук в таблицях або великих блоках)
+    if (schedules.length === 0) {
+      $('article, .post, .entry-content, .content, .post-content').each((_, el) => {
+        const $el = $(el);
+        const text = $el.text();
+
+        if (text.includes('ГПВ') || text.includes('Черга') || text.match(/\d\.\d\s*:/)) {
+          const parsed = parseScheduleMessage(text);
+          if (parsed.date && parsed.queues.length > 0) {
+            const key = `${parsed.date}-${parsed.queues.length}`;
+            if (!seenDates.has(key)) {
+              seenDates.add(key);
+              schedules.push({
+                parsed,
+                source: 'zoe',
+                rawText: text.substring(0, 300)
+              });
+            }
+          }
         }
-      }
-    });
+      });
+    }
 
   } catch (error) {
     Logger.error('ZoeScraper', 'Error parsing HTML', error);
@@ -182,7 +180,7 @@ function validateSchedule(parsed) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const daysDiff = (scheduleDate - today) / (1000 * 60 * 60 * 24);
-  
+
   if (daysDiff < -7) {
     return { valid: false, reason: 'Date too old' };
   }
@@ -193,24 +191,24 @@ function validateSchedule(parsed) {
     if (!queue.queue || !queue.intervals || queue.intervals.length === 0) {
       return { valid: false, reason: 'Queue missing intervals' };
     }
-    
+
     // Перевіряємо формат черги
     if (!/^\d\.\d$/.test(queue.queue)) {
       return { valid: false, reason: `Invalid queue format: ${queue.queue}` };
     }
-    
+
     // Перевіряємо інтервали
     for (const interval of queue.intervals) {
       if (!interval.start || !interval.end) {
         return { valid: false, reason: 'Interval missing start or end' };
       }
-      
+
       // Перевіряємо формат часу
       const timeRegex = /^\d{2}:\d{2}$/;
       if (!timeRegex.test(interval.start) || !timeRegex.test(interval.end)) {
         return { valid: false, reason: 'Invalid time format' };
       }
-      
+
       totalIntervals++;
     }
   }
@@ -234,7 +232,7 @@ function validateSchedule(parsed) {
  */
 export async function updateFromZoe() {
   Logger.info('ZoeScraper', 'Fetching updates from zoe.com.ua...');
-  
+
   const html = await fetchZoeUpdates();
   if (!html) {
     // Не логуємо як помилку, бо це може бути тимчасовий збій
@@ -261,7 +259,7 @@ export async function updateFromZoe() {
   for (const { parsed, source, rawText } of parsedSchedules) {
     // Валідуємо графік
     const validation = validateSchedule(parsed);
-    
+
     if (!validation.valid) {
       Logger.warning('ZoeScraper', `Invalid schedule for ${parsed.date}: ${validation.reason}`);
       Logger.debug('ZoeScraper', `Raw text: ${rawText}`);
@@ -269,15 +267,15 @@ export async function updateFromZoe() {
       continue;
     }
 
-    // Використовуємо негативний sourceMsgId для zoe (щоб не конфліктувати з Telegram)
-    // Telegram має пріоритет, тому якщо є дані з Telegram, вони не будуть перезаписані
-    const zoeSourceId = -Math.abs(Date.now()); // Негативний ID для zoe
-    
+    // Використовуємо timestamp як ID для zoe (велике позитивне число)
+    // Telegram ID - це малі числа (наприклад 2537), а timestamp - великі (1700000000000)
+    const zoeSourceId = Date.now();
+
     // Перевіряємо чи вже є дані з Telegram для цієї дати
     const metadata = getScheduleMetadata(parsed.date);
-    
-    // Якщо є дані з Telegram (позитивний source_msg_id), пропускаємо
-    if (metadata && metadata.source_msg_id > 0) {
+
+    // Якщо є дані з Telegram (ID < 1000000000), пропускаємо, бо Telegram має пріоритет
+    if (metadata && metadata.source_msg_id < 1000000000) {
       Logger.debug('ZoeScraper', `Skipped ${parsed.date} - Telegram data exists (priority)`);
       skipped++;
       continue;

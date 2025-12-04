@@ -9,7 +9,7 @@ const router = Router();
  * @swagger
  * /api/updates/new:
  *   get:
- *     summary: Get new schedules posted in the last N hours
+ *     summary: Get new schedules for future dates (tomorrow+) posted in the last N hours
  *     tags: [Updates]
  *     parameters:
  *       - in: query
