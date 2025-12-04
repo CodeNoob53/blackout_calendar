@@ -4,7 +4,7 @@ import nodeCron from "node-cron";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import config from "./config/index.js";
-import { initDatabase } from "./db.js";
+import { initDatabase, db } from "./db.js";
 import { updateFromTelegram } from "./scraper/telegramScraper.js";
 import { updateFromZoe } from "./scraper/zoeScraper.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
@@ -200,4 +200,59 @@ server.on('error', (error) => {
     Logger.error('Server', 'Failed to start server', error);
     process.exit(1);
   }
+});
+
+// Graceful shutdown handling
+function gracefulShutdown(signal) {
+  Logger.info('Server', `${signal} received, starting graceful shutdown...`);
+
+  // Зупиняємо прийом нових запитів
+  server.close((err) => {
+    if (err) {
+      Logger.error('Server', 'Error during server shutdown', err);
+      process.exit(1);
+    }
+
+    Logger.success('Server', 'HTTP server closed successfully');
+
+    // Закриваємо з'єднання з базою даних
+    try {
+      db.close();
+      Logger.success('Database', 'Database connection closed');
+    } catch (error) {
+      Logger.error('Database', 'Error closing database', error);
+    }
+
+    // Очищаємо кеш
+    try {
+      cache.clear();
+      Logger.success('Cache', 'Cache cleared');
+    } catch (error) {
+      Logger.warning('Cache', 'Error clearing cache', error);
+    }
+
+    Logger.info('Server', 'Graceful shutdown completed');
+    process.exit(0);
+  });
+
+  // Якщо сервер не зупиняється за 30 секунд, примусово завершуємо
+  setTimeout(() => {
+    Logger.error('Server', 'Forced shutdown after timeout (30s)');
+    process.exit(1);
+  }, 30000);
+}
+
+// Обробники сигналів
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Обробка необроблених помилок
+process.on('uncaughtException', (error) => {
+  Logger.error('Server', 'Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  Logger.error('Server', 'Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
 });

@@ -1,142 +1,97 @@
-import {
-  getScheduleByDate,
-  getLatestDate,
-  getAllDates,
-  getScheduleByQueueAndDate,
-  getLatestScheduleByQueue,
-  getTodayScheduleStatus,
-  getScheduleMetadata
-} from '../db.js';
+import { ScheduleService } from '../services/ScheduleService.js';
 import { ResponseFormatter } from '../utils/responseFormatter.js';
-import cache from '../utils/cache.js';
 
 export class ScheduleController {
   static getScheduleByDate(req, res) {
     const { date } = req.params;
     // Валідація виконується в middleware validateDateParam
 
-    const schedule = getScheduleByDate(date);
+    const result = ScheduleService.getScheduleByDate(date);
 
-    if (!schedule || schedule.length === 0) {
+    if (!result) {
       const error = ResponseFormatter.notFound(`Графік на ${date} не знайдено`);
       return res.status(error.statusCode).json(error.response);
     }
 
-    const queues = ResponseFormatter.formatScheduleData(schedule);
-
-    res.json(ResponseFormatter.success({ date, queues }));
+    res.json(ResponseFormatter.success(result));
   }
 
   static getScheduleByQueue(req, res) {
     const { queue, date } = req.params;
     // Валідація виконується в middleware validateDateParam та validateQueueParam
 
-    const schedule = getScheduleByQueueAndDate(queue, date);
+    const result = ScheduleService.getScheduleByQueue(queue, date);
 
-    if (!schedule || schedule.length === 0) {
+    if (!result) {
       const error = ResponseFormatter.notFound(`Графік для черги ${queue} на ${date} не знайдено`);
       return res.status(error.statusCode).json(error.response);
     }
 
-    const intervals = ResponseFormatter.formatQueueSchedule(schedule);
-
-    res.json(ResponseFormatter.success({ queue, date, intervals }));
+    res.json(ResponseFormatter.success(result));
   }
 
   static getAllDates(req, res) {
-    // Кешуємо список дат на 5 хвилин
-    const cacheKey = 'schedules:all-dates';
-    let cached = cache.get(cacheKey);
-    
-    if (!cached) {
-      const dates = getAllDates();
-      cached = dates.map(d => d.date);
-      cache.set(cacheKey, cached, 300); // 5 хвилин
+    // Пагінація через query параметри: ?limit=10&offset=0
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : undefined;
+    const offset = req.query.offset ? parseInt(req.query.offset, 10) : 0;
+
+    // Валідація параметрів
+    if (limit !== undefined && (isNaN(limit) || limit <= 0)) {
+      const error = ResponseFormatter.error('Invalid limit parameter', 400);
+      return res.status(error.statusCode).json(error.response);
     }
-    
-    res.json(ResponseFormatter.success({ dates: cached }));
+
+    if (isNaN(offset) || offset < 0) {
+      const error = ResponseFormatter.error('Invalid offset parameter', 400);
+      return res.status(error.statusCode).json(error.response);
+    }
+
+    const options = limit !== undefined ? { limit, offset } : {};
+    const result = ScheduleService.getAllDates(options);
+    res.json(ResponseFormatter.success(result));
   }
 
   static getLatestSchedule(req, res) {
-    // Кешуємо останній графік на 2 хвилини (оновлюється кожні 5 хв)
-    const cacheKey = 'schedules:latest';
-    let cached = cache.get(cacheKey);
-    
-    if (!cached) {
-      const latestDate = getLatestDate();
+    const result = ScheduleService.getLatestSchedule();
 
-      if (!latestDate) {
-        const error = ResponseFormatter.notFound('Немає доступних графіків');
-        return res.status(error.statusCode).json(error.response);
-      }
-
-      const schedule = getScheduleByDate(latestDate);
-      const queues = ResponseFormatter.formatScheduleData(schedule);
-      
-      cached = { date: latestDate, queues };
-      cache.set(cacheKey, cached, 120); // 2 хвилини
+    if (!result) {
+      const error = ResponseFormatter.notFound('Немає доступних графіків');
+      return res.status(error.statusCode).json(error.response);
     }
 
-    res.json(ResponseFormatter.success(cached));
+    res.json(ResponseFormatter.success(result));
   }
 
   static getMetadata(req, res) {
     const { date } = req.params;
     // Валідація виконується в middleware validateDateParam
 
-    const metadata = getScheduleMetadata(date);
+    const result = ScheduleService.getMetadata(date);
 
-    if (!metadata) {
+    if (!result) {
       const error = ResponseFormatter.notFound(`Метадані для ${date} не знайдено`);
       return res.status(error.statusCode).json(error.response);
     }
 
-    res.json(ResponseFormatter.success({
-      date,
-      metadata: ResponseFormatter.formatMetadata(metadata)
-    }));
+    res.json(ResponseFormatter.success(result));
   }
 
   static getLatestScheduleByQueue(req, res) {
     const { queue } = req.params;
     // Валідація виконується в middleware validateQueueParam
 
-    const latestDate = getLatestDate();
+    const result = ScheduleService.getLatestScheduleByQueue(queue);
 
-    if (!latestDate) {
-      const error = ResponseFormatter.notFound('Немає доступних графіків');
-      return res.status(error.statusCode).json(error.response);
-    }
-
-    const schedule = getLatestScheduleByQueue(queue);
-
-    if (!schedule || schedule.length === 0) {
+    if (!result) {
       const error = ResponseFormatter.notFound(`Графік для черги ${queue} не знайдено`);
       return res.status(error.statusCode).json(error.response);
     }
 
-    const intervals = ResponseFormatter.formatQueueSchedule(schedule);
-
-    res.json(ResponseFormatter.success({ queue, date: latestDate, intervals }));
+    res.json(ResponseFormatter.success(result));
   }
 
   static getTodayStatus(req, res) {
-    // Кешуємо статус на сьогодні на 2 хвилини
-    const cacheKey = 'schedules:today-status';
-    let cached = cache.get(cacheKey);
-    
-    if (!cached) {
-      const status = getTodayScheduleStatus();
-      cached = {
-        today: status.date,
-        available: status.available,
-        message: status.available
-          ? 'Графік на сьогодні доступний'
-          : 'Графік на сьогодні ще не опублікований'
-      };
-      cache.set(cacheKey, cached, 120); // 2 хвилини
-    }
-
-    res.json(ResponseFormatter.success(cached));
+    const result = ScheduleService.getTodayStatus();
+    res.json(ResponseFormatter.success(result));
   }
 }

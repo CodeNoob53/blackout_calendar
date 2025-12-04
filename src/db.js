@@ -61,13 +61,27 @@ export function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Базові індекси для outages
     CREATE INDEX IF NOT EXISTS idx_date ON outages(date);
     CREATE INDEX IF NOT EXISTS idx_queue ON outages(queue);
+    CREATE INDEX IF NOT EXISTS idx_date_queue ON outages(date, queue);
+
+    -- Індекси для schedule_history
     CREATE INDEX IF NOT EXISTS idx_history_date ON schedule_history(date);
+    CREATE INDEX IF NOT EXISTS idx_history_date_detected ON schedule_history(date, detected_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_history_date_source ON schedule_history(date, source_msg_id);
+    CREATE INDEX IF NOT EXISTS idx_history_detected ON schedule_history(detected_at DESC);
+
+    -- Індекси для schedule_metadata
     CREATE INDEX IF NOT EXISTS idx_metadata_updated ON schedule_metadata(last_updated_at);
+    CREATE INDEX IF NOT EXISTS idx_metadata_date_updated ON schedule_metadata(date, last_updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_metadata_source ON schedule_metadata(source);
+
+    -- Індекси для addresses
     CREATE INDEX IF NOT EXISTS idx_addresses_street ON addresses(street);
     CREATE INDEX IF NOT EXISTS idx_addresses_queue ON addresses(queue);
     CREATE INDEX IF NOT EXISTS idx_addresses_full_address ON addresses(full_address);
+    CREATE INDEX IF NOT EXISTS idx_addresses_street_queue ON addresses(street, queue);
   `);
 
   Logger.db(`Initialized at ${dbPath}`);
@@ -192,29 +206,39 @@ export function insertParsedSchedule(data, sourceMsgId, messageDate = null, sour
   `);
 
   const upsertSchedule = db.transaction((date, queues, msgId, msgDate, chgType, src) => {
-    // Спочатку видаляємо всі старі записи для цієї дати
-    deleteStmt.run(date);
+    try {
+      // Спочатку видаляємо всі старі записи для цієї дати
+      deleteStmt.run(date);
 
-    // Потім додаємо нові
-    for (const q of queues) {
-      for (const interval of q.intervals) {
-        insertStmt.run(date, q.queue, interval.start, interval.end, msgId, now);
+      // Потім додаємо нові
+      for (const q of queues) {
+        for (const interval of q.intervals) {
+          insertStmt.run(date, q.queue, interval.start, interval.end, msgId, now);
+        }
       }
-    }
 
-    // Зберігаємо в історію
-    const historyData = JSON.stringify({ date, queues, source_msg_id: msgId, source: src });
-    insertHistory.run(date, msgId, chgType, msgDate, historyData);
+      // Зберігаємо в історію
+      const historyData = JSON.stringify({ date, queues, source_msg_id: msgId, source: src });
+      insertHistory.run(date, msgId, chgType, msgDate, historyData);
 
-    // Оновлюємо або створюємо метадані
-    if (metadata) {
-      updateMetadata.run(msgId, src, msgDate, now, chgType, date);
-    } else {
-      insertMetadata.run(date, msgId, src, msgDate, now, now, 0, chgType);
+      // Оновлюємо або створюємо метадані
+      if (metadata) {
+        updateMetadata.run(msgId, src, msgDate, now, chgType, date);
+      } else {
+        insertMetadata.run(date, msgId, src, msgDate, now, now, 0, chgType);
+      }
+    } catch (error) {
+      Logger.error('Database', `Transaction failed for date ${date}`, error);
+      throw error; // Re-throw to trigger transaction rollback
     }
   });
 
-  upsertSchedule(data.date, data.queues, sourceMsgId, messageDate, changeType, source);
+  try {
+    upsertSchedule(data.date, data.queues, sourceMsgId, messageDate, changeType, source);
+  } catch (error) {
+    Logger.error('Database', `Failed to insert schedule for ${data.date}`, error);
+    return { updated: false, changeType: null, error: error.message };
+  }
 
   if (existingMsgId) {
     Logger.success('Database', `Updated ${data.date} from ${source} (${data.queues.length} queues) ${existingSource} ${existingMsgId} → ${source} ${sourceMsgId}`);
@@ -253,7 +277,16 @@ function schedulesAreEqual(newQueues, existingOutages) {
   newFlat.sort(sortFn);
   existingFlat.sort(sortFn);
 
-  return JSON.stringify(newFlat) === JSON.stringify(existingFlat);
+  // Порівнюємо безпосередньо замість JSON.stringify (швидше для великих масивів)
+  for (let i = 0; i < newFlat.length; i++) {
+    const a = newFlat[i];
+    const b = existingFlat[i];
+    if (a.queue !== b.queue || a.start !== b.start || a.end !== b.end) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export function getScheduleByDate(date) {
@@ -404,6 +437,18 @@ export function getUpdatedSchedules(hoursAgo = 24) {
 
 // ========== Функції для роботи з адресами ==========
 
+/**
+ * Екранує спеціальні символи LIKE для безпечного пошуку
+ * Запобігає SQL injection через wildcards % та _
+ */
+function escapeLikePattern(pattern) {
+  if (!pattern || typeof pattern !== 'string') {
+    return '';
+  }
+  // Екранування спеціальних символів LIKE: % та _
+  return pattern.replace(/[%_]/g, '\\$&');
+}
+
 // Пошук адреси за повною адресою
 export function findAddressByFullAddress(fullAddress) {
   const stmt = db.prepare(`
@@ -414,11 +459,15 @@ export function findAddressByFullAddress(fullAddress) {
 
 // Пошук адрес за вулицею
 export function findAddressesByStreet(street) {
+  // Екануємо спеціальні символи для безпеки
+  const escapedStreet = escapeLikePattern(street);
+  const searchPattern = `%${escapedStreet}%`;
+
   const stmt = db.prepare(`
-    SELECT * FROM addresses WHERE street LIKE ?
+    SELECT * FROM addresses WHERE street LIKE ? ESCAPE '\\'
     ORDER BY house
   `);
-  return stmt.all(`%${street}%`);
+  return stmt.all(searchPattern);
 }
 
 // Пошук адрес за чергою

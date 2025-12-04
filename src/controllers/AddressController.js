@@ -1,7 +1,4 @@
-import {
-  findAddressByFullAddress,
-  findAddressesByStreet
-} from '../db.js';
+import { AddressService } from '../services/AddressService.js';
 import { ResponseFormatter } from '../utils/responseFormatter.js';
 
 export class AddressController {
@@ -10,7 +7,7 @@ export class AddressController {
    * Мінімум 3 символи для пошуку
    */
   static searchAddresses(req, res) {
-    let { q } = req.query;
+    let { q, limit, offset } = req.query;
 
     if (!q || q.trim().length === 0) {
       const error = ResponseFormatter.error('Query parameter "q" is required', 400);
@@ -26,18 +23,35 @@ export class AddressController {
       // Ігноруємо помилки декодування, використовуємо як є
     }
 
-    if (q.trim().length < 3) {
-      const error = ResponseFormatter.error('Query must be at least 3 characters long', 400);
+    // Пагінація (опціонально): ?q=вулиця&limit=10&offset=0
+    const options = {};
+    if (limit) {
+      const parsedLimit = parseInt(limit, 10);
+      if (isNaN(parsedLimit) || parsedLimit <= 0) {
+        const error = ResponseFormatter.error('Invalid limit parameter', 400);
+        return res.status(error.statusCode).json(error.response);
+      }
+      options.limit = parsedLimit;
+    }
+
+    if (offset) {
+      const parsedOffset = parseInt(offset, 10);
+      if (isNaN(parsedOffset) || parsedOffset < 0) {
+        const error = ResponseFormatter.error('Invalid offset parameter', 400);
+        return res.status(error.statusCode).json(error.response);
+      }
+      options.offset = parsedOffset;
+    }
+
+    const result = AddressService.searchAddresses(q.trim(), options);
+
+    // AddressService повертає об'єкт з error якщо query занадто короткий
+    if (result.error) {
+      const error = ResponseFormatter.error(result.error, 400);
       return res.status(error.statusCode).json(error.response);
     }
 
-    const addresses = findAddressesByStreet(q.trim());
-
-    res.json(ResponseFormatter.success({
-      query: q,
-      count: addresses.length,
-      addresses
-    }));
+    res.json(ResponseFormatter.success(result));
   }
 
   /**
@@ -59,7 +73,7 @@ export class AddressController {
       // Ігноруємо помилки декодування
     }
 
-    const result = findAddressByFullAddress(address.trim());
+    const result = AddressService.findByExactAddress(address.trim());
 
     if (!result) {
       const error = ResponseFormatter.notFound(`Адресу "${address}" не знайдено в базі`);

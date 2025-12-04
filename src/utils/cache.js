@@ -47,6 +47,27 @@ class Cache {
   }
 
   /**
+   * Видалити всі ключі, що відповідають паттерну
+   * @param {string} pattern - Паттерн для пошуку (підтримує * як wildcard)
+   * @returns {number} - Кількість видалених ключів
+   */
+  deletePattern(pattern) {
+    // Конвертуємо паттерн з * в regex
+    const regexPattern = pattern.replace(/\*/g, '.*');
+    const regex = new RegExp(`^${regexPattern}$`);
+
+    let deletedCount = 0;
+    for (const key of this.store.keys()) {
+      if (regex.test(key)) {
+        this.store.delete(key);
+        deletedCount++;
+      }
+    }
+
+    return deletedCount;
+  }
+
+  /**
    * Очистити весь кеш
    */
   clear() {
