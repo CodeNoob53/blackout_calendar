@@ -208,6 +208,45 @@ GET /api/addresses/search?q=Перемоги&limit=20&offset=0
 }
 ```
 
+## 🚢 Деплой на Production
+
+### Render.com (рекомендовано)
+
+1. **Створіть Web Service** на [Render.com](https://render.com)
+2. **Налаштуйте Build Command:**
+   ```bash
+   npm install && npm run build
+   ```
+3. **Start Command:**
+   ```bash
+   npm start
+   ```
+
+Скрипт `npm run build` автоматично:
+- Створює структуру БД
+- Запускає bootstrap якщо БД порожня
+- Пропускає bootstrap якщо дані вже є
+
+**Environment Variables:**
+```env
+NODE_ENV=production
+TELEGRAM_BOT_TOKEN=your_token
+TELEGRAM_CHANNEL_ID=@your_channel
+USE_SYNC_ENGINE=true
+AUTO_UPDATE_ENABLED=true
+AUTO_UPDATE_CRON=*/5 * * * *
+```
+
+Детальна інструкція: [docs/RENDER_DEPLOYMENT.md](docs/RENDER_DEPLOYMENT.md)
+
+### Інші платформи
+
+Для деплою на інших платформах (Heroku, DigitalOcean, AWS):
+
+1. Встановіть змінні оточення
+2. Запустіть `npm run build` для ініціалізації БД
+3. Запустіть `npm start` для старту сервера
+
 ## 🤝 Contributing
 
 Ми вітаємо будь-який внесок у розвиток проекту! Будь ласка, створюйте Issues та Pull Requests.
