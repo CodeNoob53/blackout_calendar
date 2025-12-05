@@ -22,11 +22,12 @@ async function initProductionDB() {
     const count = db.prepare('SELECT COUNT(*) as count FROM schedule_metadata').get();
 
     if (count.count === 0) {
-      Logger.info('InitDB', 'Database is empty, running bootstrap...');
-      await bootstrap();
-      Logger.success('InitDB', 'Bootstrap completed successfully');
+      Logger.info('InitDB', 'Database is empty');
+      Logger.info('InitDB', 'Bootstrap will run automatically when server starts');
+      // НЕ робимо bootstrap під час build - він запуститься коли сервер стартує
+      // await bootstrap();
     } else {
-      Logger.info('InitDB', `Database already has ${count.count} schedules, skipping bootstrap`);
+      Logger.info('InitDB', `Database already has ${count.count} schedules`);
     }
 
     Logger.success('InitDB', '=== Production database ready ===');
