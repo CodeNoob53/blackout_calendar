@@ -92,7 +92,11 @@ export class ResponseFormatter {
 
   static formatUpdatedSchedule(schedule) {
     const updateTime = new Date(schedule.message_date || schedule.last_updated_at);
-    const timeStr = updateTime.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+    const timeStr = updateTime.toLocaleTimeString('uk-UA', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Europe/Kiev'  // Завжди київський час незалежно від сервера
+    });
     const source = schedule.source || 'telegram';
     const sourceText = source === 'telegram'
       ? 'офіційний Telegram канал АТ "Запоріжжяобленерго"'

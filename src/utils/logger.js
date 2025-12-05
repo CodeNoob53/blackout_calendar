@@ -23,7 +23,8 @@ class Logger {
     return new Date().toLocaleTimeString('uk-UA', {
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit'
+      second: '2-digit',
+      timeZone: 'Europe/Kiev'  // Завжди київський час
     });
   }
 
