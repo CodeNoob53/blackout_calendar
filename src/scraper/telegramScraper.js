@@ -1,9 +1,22 @@
 import * as cheerio from "cheerio";
 import { parseScheduleMessage } from "./parser.js";
-import { insertParsedSchedule } from "../db.js";
+import {
+  insertParsedSchedule,
+  saveTelegramSnapshot,
+  getTelegramVersionByPostId,
+  getLatestTelegramVersion,
+  saveTelegramVersion
+} from "../db.js";
 import config from "../config/index.js";
 import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
 import Logger from "../utils/logger.js";
+import {
+  generateScheduleHash,
+  generateTelegramVersionId,
+  schedulesAreIdentical,
+  findScheduleDifferences,
+  formatDifferencesDescription
+} from "../utils/versionHelper.js";
 
 const CHANNEL_URL = config.telegram.channelUrl;
 
@@ -33,6 +46,15 @@ export async function fetchTelegramUpdates() {
   return messages;
 }
 
+/**
+ * Оновити дані з Telegram каналу
+ *
+ * НОВА ЛОГІКА ВЕРСІОНУВАННЯ:
+ * 1. Зберігаємо кожен пост як snapshot
+ * 2. Для кожного графіка генеруємо хеш контенту
+ * 3. Якщо хеш змінився - створюємо нову версію
+ * 4. Version ID формату: tg-2537, tg-2538...
+ */
 export async function updateFromTelegram() {
   Logger.info('TgScraper', 'Fetching updates from Telegram channel...');
 
@@ -51,10 +73,14 @@ export async function updateFromTelegram() {
   for (const msg of relevant) {
     const parsed = parseScheduleMessage(msg.text);
     if (parsed.date && parsed.queues.length > 0) {
+      // Зберігаємо snapshot для кожного поста
+      const snapshotId = saveTelegramSnapshot(msg.id, msg.messageDate, msg.text, parsed);
+
       parsedMessages.push({
         msgId: msg.id,
         parsed: parsed,
-        messageDate: msg.messageDate
+        messageDate: msg.messageDate,
+        snapshotId: snapshotId
       });
     }
   }
@@ -70,16 +96,70 @@ export async function updateFromTelegram() {
   const newSchedules = [];
   const updatedSchedules = [];
 
-  for (const { msgId, parsed, messageDate } of parsedMessages) {
+  for (const { msgId, parsed, messageDate, snapshotId } of parsedMessages) {
+    // Перевіряємо чи вже обробили цей пост
+    const existingVersion = getTelegramVersionByPostId(msgId);
+    if (existingVersion) {
+      Logger.debug('TgScraper', `Post ${msgId} already processed, skipping`);
+      skipped++;
+      continue;
+    }
+
+    // Генеруємо хеш контенту
+    const contentHash = generateScheduleHash(parsed);
+
+    // Перевіряємо чи є попередня версія для цієї дати
+    const latestVersion = getLatestTelegramVersion(parsed.date);
+    let changeType = 'new';
+
+    if (latestVersion) {
+      // Є попередня версія - порівнюємо хеші
+      if (schedulesAreIdentical(contentHash, latestVersion.content_hash)) {
+        // Контент ідентичний - але це новий пост, можливо репост або дублікат
+        Logger.debug('TgScraper', `Post ${msgId} for ${parsed.date} has identical content to previous version`);
+        // Все одно зберігаємо, бо це окремий пост
+        changeType = 'updated'; // Технічно це "оновлення" хоч контент той самий
+      } else {
+        // Контент змінився
+        const oldData = JSON.parse(latestVersion.schedule_data);
+        const differences = findScheduleDifferences(oldData, parsed);
+        const diffDescription = formatDifferencesDescription(differences);
+        Logger.info('TgScraper', `Post ${msgId}: Schedule for ${parsed.date} changed: ${diffDescription}`);
+        changeType = 'updated';
+      }
+    }
+
+    // Створюємо version ID
+    const versionId = generateTelegramVersionId(msgId);
+
+    // Зберігаємо версію
+    const saved = saveTelegramVersion(
+      versionId,
+      parsed.date,
+      msgId,
+      messageDate,
+      contentHash,
+      parsed,
+      snapshotId,
+      changeType
+    );
+
+    if (!saved) {
+      Logger.error('TgScraper', `Failed to save version ${versionId}`);
+      continue;
+    }
+
+    // Також зберігаємо в старі таблиці для backward compatibility
     const result = insertParsedSchedule(parsed, msgId, messageDate, 'telegram');
 
     if (!result.updated) {
       skipped++;
     } else {
       updated++;
+      Logger.success('TgScraper', `${changeType === 'new' ? 'New' : 'Updated'} ${parsed.date} from post ${msgId} (${versionId})`);
 
       // Зберігаємо для push-повідомлень тільки останні зміни для кожної дати
-      if (result.changeType === "new") {
+      if (changeType === "new") {
         // Видаляємо попередню new-запис для цієї дати (якщо є)
         const existingIndex = newSchedules.findIndex(s => s.date === parsed.date);
         if (existingIndex !== -1) {
@@ -89,9 +169,10 @@ export async function updateFromTelegram() {
         newSchedules.push({
           date: parsed.date,
           messageDate: result.messageDate,
-          postId: msgId
+          postId: msgId,
+          versionId: versionId
         });
-      } else if (result.changeType === "updated") {
+      } else {
         // Видаляємо попередній updated-запис для цієї дати (якщо є)
         const existingIndex = updatedSchedules.findIndex(s => s.date === parsed.date);
         if (existingIndex !== -1) {
@@ -101,7 +182,8 @@ export async function updateFromTelegram() {
         updatedSchedules.push({
           date: parsed.date,
           messageDate: result.messageDate,
-          postId: msgId
+          postId: msgId,
+          versionId: versionId
         });
       }
     }

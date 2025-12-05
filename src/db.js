@@ -112,6 +112,108 @@ export function initDatabase() {
     db.exec(`UPDATE schedule_metadata SET source = CASE WHEN source_msg_id < 1000000000 THEN 'telegram' ELSE 'zoe' END WHERE source IS NULL`);
     Logger.success('Database', 'Migration: Added source column to schedule_metadata');
   }
+
+  // Міграція: створюємо нові таблиці для версіонування графіків
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+  const tableNames = tables.map(t => t.name);
+
+  if (!tableNames.includes('zoe_snapshots')) {
+    db.exec(`
+      CREATE TABLE zoe_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fetch_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        raw_html TEXT NOT NULL,
+        parsed_json TEXT,
+        processing_status TEXT DEFAULT 'pending',
+        processing_error TEXT
+      );
+
+      CREATE INDEX idx_zoe_snapshots_fetch ON zoe_snapshots(fetch_timestamp DESC);
+      CREATE INDEX idx_zoe_snapshots_status ON zoe_snapshots(processing_status);
+    `);
+    Logger.success('Database', 'Migration: Created zoe_snapshots table');
+  }
+
+  if (!tableNames.includes('telegram_snapshots')) {
+    db.exec(`
+      CREATE TABLE telegram_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER NOT NULL UNIQUE,
+        message_date DATETIME NOT NULL,
+        fetch_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        raw_text TEXT NOT NULL,
+        raw_html TEXT,
+        parsed_json TEXT,
+        processing_status TEXT DEFAULT 'pending',
+        processing_error TEXT
+      );
+
+      CREATE INDEX idx_tg_snapshots_post ON telegram_snapshots(post_id);
+      CREATE INDEX idx_tg_snapshots_msg ON telegram_snapshots(message_date DESC);
+      CREATE INDEX idx_tg_snapshots_status ON telegram_snapshots(processing_status);
+    `);
+    Logger.success('Database', 'Migration: Created telegram_snapshots table');
+  }
+
+  if (!tableNames.includes('zoe_schedule_versions')) {
+    db.exec(`
+      CREATE TABLE zoe_schedule_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        version_id TEXT NOT NULL UNIQUE,
+        schedule_date TEXT NOT NULL,
+        version_number INTEGER NOT NULL,
+        detected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        site_update_time TEXT,
+        content_hash TEXT NOT NULL,
+        schedule_data TEXT NOT NULL,
+        snapshot_id INTEGER NOT NULL,
+        change_type TEXT NOT NULL,
+        FOREIGN KEY (snapshot_id) REFERENCES zoe_snapshots(id),
+        UNIQUE(schedule_date, version_number)
+      );
+
+      CREATE INDEX idx_zoe_versions_date ON zoe_schedule_versions(schedule_date, version_number DESC);
+      CREATE INDEX idx_zoe_versions_detected ON zoe_schedule_versions(detected_at DESC);
+      CREATE INDEX idx_zoe_versions_hash ON zoe_schedule_versions(content_hash);
+      CREATE INDEX idx_zoe_versions_version_id ON zoe_schedule_versions(version_id);
+    `);
+    Logger.success('Database', 'Migration: Created zoe_schedule_versions table');
+  }
+
+  if (!tableNames.includes('telegram_schedule_versions')) {
+    db.exec(`
+      CREATE TABLE telegram_schedule_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        version_id TEXT NOT NULL UNIQUE,
+        schedule_date TEXT NOT NULL,
+        post_id INTEGER NOT NULL,
+        message_date DATETIME NOT NULL,
+        detected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        content_hash TEXT NOT NULL,
+        schedule_data TEXT NOT NULL,
+        snapshot_id INTEGER NOT NULL,
+        change_type TEXT NOT NULL,
+        FOREIGN KEY (snapshot_id) REFERENCES telegram_snapshots(id),
+        UNIQUE(post_id)
+      );
+
+      CREATE INDEX idx_tg_versions_date ON telegram_schedule_versions(schedule_date, post_id DESC);
+      CREATE INDEX idx_tg_versions_detected ON telegram_schedule_versions(detected_at DESC);
+      CREATE INDEX idx_tg_versions_post ON telegram_schedule_versions(post_id);
+      CREATE INDEX idx_tg_versions_hash ON telegram_schedule_versions(content_hash);
+      CREATE INDEX idx_tg_versions_version_id ON telegram_schedule_versions(version_id);
+    `);
+    Logger.success('Database', 'Migration: Created telegram_schedule_versions table');
+  }
+
+  // PHASE 1 MIGRATION: Додаємо page_position для Zoe версій
+  const zoeVersionsInfo = db.prepare("PRAGMA table_info(zoe_schedule_versions)").all();
+  const hasPagePosition = zoeVersionsInfo.some(col => col.name === 'page_position');
+
+  if (!hasPagePosition) {
+    db.exec(`ALTER TABLE zoe_schedule_versions ADD COLUMN page_position INTEGER`);
+    Logger.success('Database', 'Migration: Added page_position to zoe_schedule_versions');
+  }
 }
 
 export function getSourceMessageId(date) {
@@ -510,6 +612,294 @@ export function getAddressStats() {
     FROM addresses
   `);
   return stmt.get();
+}
+
+// ========== Функції для роботи з версіонуванням графіків ==========
+
+/**
+ * Зберегти snapshot з Zoe
+ * @param {string} rawHtml - Оригінальний HTML
+ * @param {Array} parsedSchedules - Масив розпарсених графіків
+ * @returns {number} ID створеного snapshot
+ */
+export function saveZoeSnapshot(rawHtml, parsedSchedules = null) {
+  const stmt = db.prepare(`
+    INSERT INTO zoe_snapshots (raw_html, parsed_json, processing_status)
+    VALUES (?, ?, ?)
+  `);
+
+  const result = stmt.run(
+    rawHtml,
+    parsedSchedules ? JSON.stringify(parsedSchedules) : null,
+    parsedSchedules ? 'processed' : 'pending'
+  );
+
+  return result.lastInsertRowid;
+}
+
+/**
+ * Зберегти snapshot з Telegram
+ * @param {number} postId - ID поста
+ * @param {string} messageDate - Дата публікації
+ * @param {string} rawText - Оригінальний текст
+ * @param {Object} parsedSchedule - Розпарсений графік
+ * @returns {number} ID створеного snapshot або існуючого
+ */
+export function saveTelegramSnapshot(postId, messageDate, rawText, parsedSchedule = null) {
+  // Перевіряємо чи вже є такий snapshot
+  const existing = db.prepare('SELECT id FROM telegram_snapshots WHERE post_id = ?').get(postId);
+  if (existing) {
+    return existing.id;
+  }
+
+  const stmt = db.prepare(`
+    INSERT INTO telegram_snapshots (post_id, message_date, raw_text, parsed_json, processing_status)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  const result = stmt.run(
+    postId,
+    messageDate,
+    rawText,
+    parsedSchedule ? JSON.stringify(parsedSchedule) : null,
+    parsedSchedule ? 'processed' : 'pending'
+  );
+
+  return result.lastInsertRowid;
+}
+
+/**
+ * Отримати наступний номер версії для Zoe графіка
+ * @param {string} scheduleDate - Дата графіка
+ * @returns {number} Наступний номер версії
+ */
+export function getNextZoeVersionNumber(scheduleDate) {
+  const stmt = db.prepare(`
+    SELECT MAX(version_number) as max_version
+    FROM zoe_schedule_versions
+    WHERE schedule_date = ?
+  `);
+
+  const result = stmt.get(scheduleDate);
+  return (result?.max_version || 0) + 1;
+}
+
+/**
+ * Отримати останню версію графіка для дати (Zoe)
+ * @param {string} scheduleDate - Дата графіка
+ * @returns {Object|null} Остання версія або null
+ */
+export function getLatestZoeVersion(scheduleDate) {
+  const stmt = db.prepare(`
+    SELECT * FROM zoe_schedule_versions
+    WHERE schedule_date = ?
+    ORDER BY version_number DESC
+    LIMIT 1
+  `);
+
+  return stmt.get(scheduleDate);
+}
+
+/**
+ * Зберегти нову версію графіка з Zoe
+ * @param {string} versionId - ID версії (напр. "zoe-2025-12-05-v001")
+ * @param {string} scheduleDate - Дата графіка
+ * @param {number} versionNumber - Номер версії
+ * @param {string} contentHash - Хеш контенту
+ * @param {Object} scheduleData - Дані графіка
+ * @param {number} snapshotId - ID snapshot
+ * @param {string} changeType - Тип зміни (new/updated)
+ * @param {string|null} siteUpdateTime - Час оновлення з сайту
+ * @param {number|null} pagePosition - Позиція на сторінці (від 0)
+ * @returns {boolean} true якщо успішно
+ */
+export function saveZoeVersion(versionId, scheduleDate, versionNumber, contentHash, scheduleData, snapshotId, changeType, siteUpdateTime = null, pagePosition = null) {
+  const stmt = db.prepare(`
+    INSERT INTO zoe_schedule_versions
+    (version_id, schedule_date, version_number, content_hash, schedule_data, snapshot_id, change_type, site_update_time, page_position)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  try {
+    stmt.run(versionId, scheduleDate, versionNumber, contentHash, JSON.stringify(scheduleData), snapshotId, changeType, siteUpdateTime, pagePosition);
+    return true;
+  } catch (error) {
+    Logger.error('Database', `Failed to save Zoe version ${versionId}`, error);
+    return false;
+  }
+}
+
+/**
+ * Отримати останню версію графіка для дати (Telegram)
+ * @param {string} scheduleDate - Дата графіка
+ * @returns {Object|null} Остання версія або null
+ */
+export function getLatestTelegramVersion(scheduleDate) {
+  const stmt = db.prepare(`
+    SELECT * FROM telegram_schedule_versions
+    WHERE schedule_date = ?
+    ORDER BY post_id DESC
+    LIMIT 1
+  `);
+
+  return stmt.get(scheduleDate);
+}
+
+/**
+ * Перевірити чи існує Telegram версія з таким post_id
+ * @param {number} postId - ID поста
+ * @returns {Object|null} Версія або null
+ */
+export function getTelegramVersionByPostId(postId) {
+  const stmt = db.prepare(`
+    SELECT * FROM telegram_schedule_versions
+    WHERE post_id = ?
+  `);
+
+  return stmt.get(postId);
+}
+
+/**
+ * Зберегти нову версію графіка з Telegram
+ * @param {string} versionId - ID версії (напр. "tg-2537")
+ * @param {string} scheduleDate - Дата графіка
+ * @param {number} postId - ID поста
+ * @param {string} messageDate - Дата повідомлення
+ * @param {string} contentHash - Хеш контенту
+ * @param {Object} scheduleData - Дані графіка
+ * @param {number} snapshotId - ID snapshot
+ * @param {string} changeType - Тип зміни (new/updated)
+ * @returns {boolean} true якщо успішно
+ */
+export function saveTelegramVersion(versionId, scheduleDate, postId, messageDate, contentHash, scheduleData, snapshotId, changeType) {
+  // Перевіряємо чи вже є версія з таким post_id
+  const existing = getTelegramVersionByPostId(postId);
+  if (existing) {
+    Logger.debug('Database', `Telegram version ${versionId} already exists, skipping`);
+    return false;
+  }
+
+  const stmt = db.prepare(`
+    INSERT INTO telegram_schedule_versions
+    (version_id, schedule_date, post_id, message_date, content_hash, schedule_data, snapshot_id, change_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  try {
+    stmt.run(versionId, scheduleDate, postId, messageDate, contentHash, JSON.stringify(scheduleData), snapshotId, changeType);
+    return true;
+  } catch (error) {
+    Logger.error('Database', `Failed to save Telegram version ${versionId}`, error);
+    return false;
+  }
+}
+
+/**
+ * Отримати всі версії графіка для дати (з обох джерел)
+ * @param {string} scheduleDate - Дата графіка
+ * @param {string|null} source - Джерело ('zoe', 'telegram', або null для всіх)
+ * @returns {Array} Масив версій
+ */
+export function getAllVersionsForDate(scheduleDate, source = null) {
+  if (source === 'zoe') {
+    const stmt = db.prepare(`
+      SELECT
+        version_id,
+        schedule_date,
+        version_number as version_info,
+        detected_at,
+        content_hash,
+        schedule_data,
+        change_type,
+        'zoe' as source,
+        site_update_time as metadata
+      FROM zoe_schedule_versions
+      WHERE schedule_date = ?
+      ORDER BY version_number DESC
+    `);
+    return stmt.all(scheduleDate);
+  } else if (source === 'telegram') {
+    const stmt = db.prepare(`
+      SELECT
+        version_id,
+        schedule_date,
+        post_id as version_info,
+        detected_at,
+        content_hash,
+        schedule_data,
+        change_type,
+        'telegram' as source,
+        message_date as metadata
+      FROM telegram_schedule_versions
+      WHERE schedule_date = ?
+      ORDER BY post_id DESC
+    `);
+    return stmt.all(scheduleDate);
+  } else {
+    // Обидва джерела
+    const stmt = db.prepare(`
+      SELECT
+        version_id,
+        schedule_date,
+        version_number as version_info,
+        detected_at,
+        content_hash,
+        schedule_data,
+        change_type,
+        'zoe' as source,
+        site_update_time as metadata
+      FROM zoe_schedule_versions
+      WHERE schedule_date = ?
+      UNION ALL
+      SELECT
+        version_id,
+        schedule_date,
+        post_id as version_info,
+        detected_at,
+        content_hash,
+        schedule_data,
+        change_type,
+        'telegram' as source,
+        message_date as metadata
+      FROM telegram_schedule_versions
+      WHERE schedule_date = ?
+      ORDER BY detected_at DESC
+    `);
+    return stmt.all(scheduleDate, scheduleDate);
+  }
+}
+
+/**
+ * Отримати статистику версій
+ * @returns {Object} Статистика
+ */
+export function getVersionStats() {
+  const zoeStats = db.prepare(`
+    SELECT
+      COUNT(DISTINCT schedule_date) as dates_count,
+      COUNT(*) as versions_count,
+      AVG(version_number) as avg_versions_per_date
+    FROM zoe_schedule_versions
+  `).get();
+
+  const tgStats = db.prepare(`
+    SELECT
+      COUNT(DISTINCT schedule_date) as dates_count,
+      COUNT(*) as versions_count
+    FROM telegram_schedule_versions
+  `).get();
+
+  return {
+    zoe: {
+      datesCount: zoeStats.dates_count,
+      versionsCount: zoeStats.versions_count,
+      avgVersionsPerDate: zoeStats.avg_versions_per_date?.toFixed(2) || 0
+    },
+    telegram: {
+      datesCount: tgStats.dates_count,
+      versionsCount: tgStats.versions_count
+    }
+  };
 }
 
 export { db };

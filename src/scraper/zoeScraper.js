@@ -1,11 +1,25 @@
 import * as cheerio from "cheerio";
 import axios from "axios";
 import { parseScheduleMessage } from "./parser.js";
-import { insertParsedSchedule, getScheduleMetadata } from "../db.js";
+import {
+  insertParsedSchedule,
+  getScheduleMetadata,
+  saveZoeSnapshot,
+  getLatestZoeVersion,
+  getNextZoeVersionNumber,
+  saveZoeVersion
+} from "../db.js";
 import config from "../config/index.js";
 import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
 import Logger from "../utils/logger.js";
 import https from "https";
+import {
+  generateScheduleHash,
+  generateZoeVersionId,
+  schedulesAreIdentical,
+  findScheduleDifferences,
+  formatDifferencesDescription
+} from "../utils/versionHelper.js";
 
 const ZOE_URL = "https://www.zoe.com.ua/%D0%B3%D1%80%D0%B0%D1%84%D1%96%D0%BA%D0%B8-%D0%BF%D0%BE%D0%B3%D0%BE%D0%B4%D0%B8%D0%BD%D0%BD%D0%B8%D1%85-%D1%81%D1%82%D0%B0%D0%B1%D1%96%D0%BB%D1%96%D0%B7%D0%B0%D1%86%D1%96%D0%B9%D0%BD%D0%B8%D1%85/";
 
@@ -186,8 +200,8 @@ export function parseZoeHTML(html) {
 
   const $ = cheerio.load(html);
   const schedules = [];
-  const seenDates = new Map(); // Змінено на Map щоб зберігати індекс графіка для оновлення
   const dateUpdateTimes = new Map(); // Зберігаємо час оновлення для кожної дати
+  let positionIndex = 0; // Лічильник позиції на сторінці
 
   try {
     // Стратегія: Розбиваємо сторінку на блоки за заголовками
@@ -247,9 +261,6 @@ export function parseZoeHTML(html) {
         // extractDate має це обробляти, але про всяк випадок
 
         if (parsed.date && parsed.queues.length > 0) {
-          // Генеруємо унікальний ключ для дати та кількості черг, щоб розрізняти оновлення
-          const key = `${parsed.date}-${parsed.queues.length}-${JSON.stringify(parsed.queues[0])}`;
-
           // Визначаємо messageDate: спочатку з поточного заголовка, якщо немає - з dateUpdateTimes
           let finalUpdateTime = updateTime;
           if (!finalUpdateTime && dateUpdateTimes.has(parsed.date)) {
@@ -260,24 +271,13 @@ export function parseZoeHTML(html) {
             parsed,
             source: 'zoe',
             messageDate: finalUpdateTime, // Час оновлення з заголовка "(оновлено о XX:XX)"
-            rawText: content.substring(0, 300)
+            rawText: content.substring(0, 300),
+            pagePosition: positionIndex++ // Позиція на сторінці (від 0)
           };
 
-          if (!seenDates.has(key)) {
-            // Новий графік - додаємо
-            const index = schedules.length;
-            schedules.push(newSchedule);
-            seenDates.set(key, index);
-          } else {
-            // Дублікат - але якщо новий має messageDate, а старий ні, то замінюємо
-            const existingIndex = seenDates.get(key);
-            const existingSchedule = schedules[existingIndex];
-
-            if (finalUpdateTime && !existingSchedule.messageDate) {
-              // Новий графік має час, а старий ні - замінюємо
-              schedules[existingIndex] = newSchedule;
-            }
-          }
+          // PHASE 1 FIX: Видалено фільтрацію дублікатів
+          // Система версіонування (хешування) сама відфільтрує справжні дублікати
+          schedules.push(newSchedule);
         }
       }
     });
@@ -291,15 +291,12 @@ export function parseZoeHTML(html) {
         if (text.includes('ГПВ') || text.includes('Черга') || text.match(/\d\.\d\s*:/)) {
           const parsed = parseScheduleMessage(text);
           if (parsed.date && parsed.queues.length > 0) {
-            const key = `${parsed.date}-${parsed.queues.length}`;
-            if (!seenDates.has(key)) {
-              seenDates.add(key);
-              schedules.push({
-                parsed,
-                source: 'zoe',
-                rawText: text.substring(0, 300)
-              });
-            }
+            schedules.push({
+              parsed,
+              source: 'zoe',
+              rawText: text.substring(0, 300),
+              pagePosition: positionIndex++ // Позиція на сторінці
+            });
           }
         }
       });
@@ -382,6 +379,12 @@ function validateSchedule(parsed) {
 /**
  * Оновити дані з zoe.com.ua
  * Використовується як додаткове джерело, Telegram має пріоритет
+ *
+ * НОВА ЛОГІКА ВЕРСІОНУВАННЯ:
+ * 1. Зберігаємо raw HTML як snapshot
+ * 2. Для кожного графіка генеруємо хеш контенту
+ * 3. Якщо хеш змінився - створюємо нову версію
+ * 4. Version ID формату: zoe-2025-12-05-v001, zoe-2025-12-05-v002...
  */
 export async function updateFromZoe() {
   Logger.info('ZoeScraper', 'Fetching updates from zoe.com.ua...');
@@ -400,7 +403,11 @@ export async function updateFromZoe() {
     };
   }
 
+  // Крок 1: Зберігаємо raw HTML snapshot
   const parsedSchedules = parseZoeHTML(html);
+  const snapshotId = saveZoeSnapshot(html, parsedSchedules);
+  Logger.debug('ZoeScraper', `Saved snapshot #${snapshotId}`);
+
   Logger.info('ZoeScraper', `Found ${parsedSchedules.length} potential schedules`);
 
   let updated = 0;
@@ -409,45 +416,82 @@ export async function updateFromZoe() {
   const newSchedules = [];
   const updatedSchedules = [];
 
-  for (const { parsed, source, messageDate, rawText } of parsedSchedules) {
+  for (const { parsed, source, messageDate, rawText, pagePosition } of parsedSchedules) {
     // Валідуємо графік
     const validation = validateSchedule(parsed);
 
     if (!validation.valid) {
       // Пропускаємо невалідні графіки (зазвичай старі дати)
+      Logger.debug('ZoeScraper', `Skipped invalid schedule for ${parsed.date}: ${validation.reason}`);
       invalid++;
       continue;
     }
 
-    // Використовуємо timestamp як ID для zoe (велике позитивне число)
-    // Telegram ID - це малі числа (наприклад 2537), а timestamp - великі (1700000000000)
-    const zoeSourceId = Date.now();
+    // Крок 2: Генеруємо хеш контенту графіка
+    const contentHash = generateScheduleHash(parsed);
 
-    // Перевіряємо чи вже є дані для цієї дати
-    const metadata = getScheduleMetadata(parsed.date);
+    // Крок 3: Перевіряємо чи вже є така версія
+    const latestVersion = getLatestZoeVersion(parsed.date);
 
-    // Вставляємо дані з zoe, використовуючи messageDate з заголовка "(оновлено о XX:XX)"
-    // Якщо messageDate немає (старий формат), використовуємо поточний час
-    const result = insertParsedSchedule(parsed, zoeSourceId, messageDate || new Date().toISOString(), 'zoe');
+    if (latestVersion) {
+      // Є попередня версія - порівнюємо хеші
+      if (schedulesAreIdentical(contentHash, latestVersion.content_hash)) {
+        // Контент ідентичний - пропускаємо
+        Logger.debug('ZoeScraper', `Schedule for ${parsed.date} unchanged (hash: ${contentHash.substring(0, 8)}...)`);
+        skipped++;
+        continue;
+      }
 
-    if (!result.updated) {
-      skipped++;
-    } else {
+      // Контент змінився - логуємо різницю
+      const oldData = JSON.parse(latestVersion.schedule_data);
+      const differences = findScheduleDifferences(oldData, parsed);
+      const diffDescription = formatDifferencesDescription(differences);
+      Logger.info('ZoeScraper', `Schedule for ${parsed.date} changed: ${diffDescription}`);
+    }
+
+    // Крок 4: Створюємо нову версію
+    const versionNumber = getNextZoeVersionNumber(parsed.date);
+    const versionId = generateZoeVersionId(parsed.date, versionNumber);
+    const changeType = latestVersion ? 'updated' : 'new';
+
+    // Зберігаємо версію в новій таблиці
+    const saved = saveZoeVersion(
+      versionId,
+      parsed.date,
+      versionNumber,
+      contentHash,
+      parsed,
+      snapshotId,
+      changeType,
+      messageDate,
+      pagePosition  // PHASE 1: Зберігаємо позицію на сторінці
+    );
+
+    if (!saved) {
+      Logger.error('ZoeScraper', `Failed to save version ${versionId}`);
+      continue;
+    }
+
+    // Крок 5: Також зберігаємо в старі таблиці для backward compatibility
+    // TODO: Поступово можна буде відмовитись від цього
+    const legacyResult = insertParsedSchedule(parsed, versionNumber, messageDate || new Date().toISOString(), 'zoe');
+
+    if (legacyResult.updated) {
       updated++;
-      Logger.success('ZoeScraper', `Updated ${parsed.date} from zoe.com.ua (${parsed.queues.length} queues)`);
+      Logger.success('ZoeScraper', `${changeType === 'new' ? 'New' : 'Updated'} ${parsed.date} version ${versionNumber} (${versionId})`);
 
-      if (result.changeType === "new") {
+      if (changeType === "new") {
         newSchedules.push({
           date: parsed.date,
-          messageDate: result.messageDate,
-          postId: zoeSourceId,
+          messageDate: messageDate || new Date().toISOString(),
+          versionId: versionId,
           source: 'zoe'
         });
-      } else if (result.changeType === "updated") {
+      } else {
         updatedSchedules.push({
           date: parsed.date,
-          messageDate: result.messageDate,
-          postId: zoeSourceId,
+          messageDate: messageDate || new Date().toISOString(),
+          versionId: versionId,
           source: 'zoe'
         });
       }
@@ -459,7 +503,7 @@ export async function updateFromZoe() {
     invalidateScheduleCaches();
   }
 
-  Logger.info('ZoeScraper', `Processed: ${parsedSchedules.length} total, ${updated} updated, ${skipped} skipped, ${invalid} invalid`);
+  Logger.info('ZoeScraper', `Processed: ${parsedSchedules.length} total, ${updated} updated, ${skipped} skipped (unchanged), ${invalid} invalid`);
 
   return {
     total: parsedSchedules.length,
@@ -467,7 +511,8 @@ export async function updateFromZoe() {
     skipped,
     invalid,
     newSchedules,
-    updatedSchedules
+    updatedSchedules,
+    snapshotId
   };
 }
 
