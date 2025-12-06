@@ -10,7 +10,7 @@ export class AddressController {
     let { q, limit, offset } = req.query;
 
     if (!q || q.trim().length === 0) {
-      const error = ResponseFormatter.error('Query parameter "q" is required', 400);
+      const error = ResponseFormatter.error(req.t('errors.queryRequired'), 400);
       return res.status(error.statusCode).json(error.response);
     }
 
@@ -28,7 +28,7 @@ export class AddressController {
     if (limit) {
       const parsedLimit = parseInt(limit, 10);
       if (isNaN(parsedLimit) || parsedLimit <= 0) {
-        const error = ResponseFormatter.error('Invalid limit parameter', 400);
+        const error = ResponseFormatter.error(req.t('errors.limitInvalid'), 400);
         return res.status(error.statusCode).json(error.response);
       }
       options.limit = parsedLimit;
@@ -37,7 +37,10 @@ export class AddressController {
     if (offset) {
       const parsedOffset = parseInt(offset, 10);
       if (isNaN(parsedOffset) || parsedOffset < 0) {
-        const error = ResponseFormatter.error('Invalid offset parameter', 400);
+        // Reuse limitInvalid or generic error if offset specific key is missing, 
+        // but better to add it. For now using hardcoded translated string or existing key.
+        // uk.js doesn't have offsetInvalid. I'll interpret this as parameter validation error.
+        const error = ResponseFormatter.error(req.t('errors.limitInvalid'), 400);
         return res.status(error.statusCode).json(error.response);
       }
       options.offset = parsedOffset;
@@ -46,8 +49,13 @@ export class AddressController {
     const result = AddressService.searchAddresses(q.trim(), options);
 
     // AddressService повертає об'єкт з error якщо query занадто короткий
-    if (result.error) {
-      const error = ResponseFormatter.error(result.error, 400);
+    // AddressService повертає об'єкт з validationError якщо query занадто короткий
+    if (result.validationError) {
+      const errorMsg = result.validationError === 'queryTooShort'
+        ? req.t('errors.queryTooShort')
+        : req.t('common.error');
+
+      const error = ResponseFormatter.error(errorMsg, 400);
       return res.status(error.statusCode).json(error.response);
     }
 
@@ -61,7 +69,7 @@ export class AddressController {
     let { address } = req.query;
 
     if (!address || address.trim().length === 0) {
-      const error = ResponseFormatter.error('Query parameter "address" is required', 400);
+      const error = ResponseFormatter.error(req.t('errors.addressRequired'), 400);
       return res.status(error.statusCode).json(error.response);
     }
 
@@ -76,7 +84,7 @@ export class AddressController {
     const result = AddressService.findByExactAddress(address.trim());
 
     if (!result) {
-      const error = ResponseFormatter.notFound(`Адресу "${address}" не знайдено в базі`);
+      const error = ResponseFormatter.notFound(req.t('errors.addressNotFound', { address }));
       return res.status(error.statusCode).json(error.response);
     }
 

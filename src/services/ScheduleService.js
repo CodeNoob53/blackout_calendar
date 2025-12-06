@@ -122,10 +122,7 @@ export class ScheduleService {
       const status = ScheduleRepository.checkTodayAvailability();
       cached = {
         today: status.date,
-        available: status.available,
-        message: status.available
-          ? 'Графік на сьогодні доступний'
-          : 'Графік на сьогодні ще не опублікований'
+        available: status.available
       };
       cache.set(cacheKey, cached, CACHE_TTL.TODAY_STATUS);
     }
@@ -187,7 +184,7 @@ export class ScheduleService {
     return {
       hours: hoursAgo,
       count: schedules.length,
-      schedules: schedules.map(s => ResponseFormatter.formatNewSchedule(s))
+      schedules: schedules
     };
   }
 
@@ -202,7 +199,7 @@ export class ScheduleService {
     return {
       hours: hoursAgo,
       count: schedules.length,
-      schedules: schedules.map(s => ResponseFormatter.formatUpdatedSchedule(s))
+      schedules: schedules
     };
   }
 }

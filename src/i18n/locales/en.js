@@ -5,6 +5,7 @@ export default {
   common: {
     success: 'Success',
     error: 'Error',
+    source: 'Source',
   },
 
   errors: {
@@ -68,6 +69,11 @@ export default {
         'Added support for two languages (Ukrainian/English)',
       ],
     },
+  },
+
+  sources: {
+    telegram: 'official Telegram channel of JSC "Zaporizhzhiaoblenergo"',
+    zoe: 'official website zoe.com.ua',
   },
 
   schedule: {

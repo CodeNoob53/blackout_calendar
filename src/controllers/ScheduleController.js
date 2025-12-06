@@ -9,7 +9,7 @@ export class ScheduleController {
     const result = ScheduleService.getScheduleByDate(date);
 
     if (!result) {
-      const error = ResponseFormatter.notFound(`Графік на ${date} не знайдено`);
+      const error = ResponseFormatter.notFound(req.t('errors.scheduleNotFound', { date }));
       return res.status(error.statusCode).json(error.response);
     }
 
@@ -23,7 +23,7 @@ export class ScheduleController {
     const result = ScheduleService.getScheduleByQueue(queue, date);
 
     if (!result) {
-      const error = ResponseFormatter.notFound(`Графік для черги ${queue} на ${date} не знайдено`);
+      const error = ResponseFormatter.notFound(req.t('errors.queueNotFound', { queue }));
       return res.status(error.statusCode).json(error.response);
     }
 
@@ -55,7 +55,7 @@ export class ScheduleController {
     const result = ScheduleService.getLatestSchedule();
 
     if (!result) {
-      const error = ResponseFormatter.notFound('Немає доступних графіків');
+      const error = ResponseFormatter.notFound(req.t('errors.noSchedulesAvailable'));
       return res.status(error.statusCode).json(error.response);
     }
 
@@ -69,7 +69,7 @@ export class ScheduleController {
     const result = ScheduleService.getMetadata(date);
 
     if (!result) {
-      const error = ResponseFormatter.notFound(`Метадані для ${date} не знайдено`);
+      const error = ResponseFormatter.notFound(req.t('errors.metadataNotFound', { date }));
       return res.status(error.statusCode).json(error.response);
     }
 
@@ -83,7 +83,7 @@ export class ScheduleController {
     const result = ScheduleService.getLatestScheduleByQueue(queue);
 
     if (!result) {
-      const error = ResponseFormatter.notFound(`Графік для черги ${queue} не знайдено`);
+      const error = ResponseFormatter.notFound(req.t('errors.queueNotFound', { queue }));
       return res.status(error.statusCode).json(error.response);
     }
 
@@ -92,6 +92,15 @@ export class ScheduleController {
 
   static getTodayStatus(req, res) {
     const result = ScheduleService.getTodayStatus();
-    res.json(ResponseFormatter.success(result));
+
+    // Add translated message
+    const message = result.available
+      ? req.t('schedule.todayAvailable')
+      : req.t('schedule.todayNotAvailable');
+
+    res.json(ResponseFormatter.success({
+      ...result,
+      message
+    }));
   }
 }

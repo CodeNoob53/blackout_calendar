@@ -9,7 +9,13 @@ export class UpdateController {
 
     const result = ScheduleService.getNewSchedules(hoursAgo);
 
-    res.json(ResponseFormatter.success(result));
+    // Format schedules with translation
+    const formatted = {
+      ...result,
+      schedules: result.schedules.map(s => ResponseFormatter.formatNewSchedule(s, req.t))
+    };
+
+    res.json(ResponseFormatter.success(formatted));
   }
 
   static getUpdatedSchedules(req, res) {
@@ -19,6 +25,11 @@ export class UpdateController {
 
     const result = ScheduleService.getUpdatedSchedules(hoursAgo);
 
-    res.json(ResponseFormatter.success(result));
+    const formatted = {
+      ...result,
+      schedules: result.schedules.map(s => ResponseFormatter.formatUpdatedSchedule(s, req.t))
+    };
+
+    res.json(ResponseFormatter.success(formatted));
   }
 }

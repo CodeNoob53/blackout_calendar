@@ -5,6 +5,7 @@ export default {
   common: {
     success: 'Успішно',
     error: 'Помилка',
+    source: 'Джерело',
   },
 
   errors: {
@@ -68,6 +69,11 @@ export default {
         'Додано підтримку двох мов (українська/англійська)',
       ],
     },
+  },
+
+  sources: {
+    telegram: 'офіційний Telegram канал АТ "Запоріжжяобленерго"',
+    zoe: 'офіційний сайт zoe.com.ua',
   },
 
   schedule: {

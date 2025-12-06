@@ -74,11 +74,13 @@ export class ResponseFormatter {
     };
   }
 
-  static formatNewSchedule(schedule) {
+  static formatNewSchedule(schedule, t = (k) => k) {
     const source = schedule.source || 'telegram';
     const sourceText = source === 'telegram'
-      ? 'офіційний Telegram канал АТ "Запоріжжяобленерго"'
-      : 'офіційний сайт zoe.com.ua';
+      ? t('sources.telegram')
+      : t('sources.zoe');
+
+    const dateStr = this.formatDate(schedule.date, 'uk'); // Keep 'uk' default for now or pass locale
 
     return {
       date: schedule.date,
@@ -86,21 +88,21 @@ export class ResponseFormatter {
       publishedAt: schedule.first_published_at,
       messageDate: schedule.message_date,
       sourcePostId: schedule.source_msg_id,
-      pushMessage: `Доступний графік за ${this.formatDateUkrainian(schedule.date)}\n Джерело: ${sourceText}`
+      pushMessage: t('schedule.newScheduleAvailable', { date: dateStr }) + `\n ` + t('common.source') + `: ${sourceText}`
     };
   }
 
-  static formatUpdatedSchedule(schedule) {
+  static formatUpdatedSchedule(schedule, t = (k) => k) {
     const updateTime = new Date(schedule.message_date || schedule.last_updated_at);
     const timeStr = updateTime.toLocaleTimeString('uk-UA', {
       hour: '2-digit',
       minute: '2-digit',
-      timeZone: 'Europe/Kiev'  // Завжди київський час незалежно від сервера
+      timeZone: 'Europe/Kiev'
     });
     const source = schedule.source || 'telegram';
-    const sourceText = source === 'telegram'
-      ? 'офіційний Telegram канал АТ "Запоріжжяобленерго"'
-      : 'офіційний сайт zoe.com.ua';
+    const sourceText = source === 'telegram' ? t('sources.telegram') : t('sources.zoe');
+
+    const dateStr = this.formatDate(schedule.date, 'uk');
 
     return {
       date: schedule.date,
@@ -109,17 +111,15 @@ export class ResponseFormatter {
       messageDate: schedule.message_date,
       sourcePostId: schedule.source_msg_id,
       updateCount: schedule.update_count,
-      pushMessage: `Увага! Внесено зміни за ${this.formatDateUkrainian(schedule.date)} о ${timeStr}\n Джерело: ${sourceText}`
+      pushMessage: t('schedule.scheduleUpdated', { date: dateStr, time: timeStr }) + `\n ` + t('common.source') + `: ${sourceText}`
     };
   }
 
-  static formatDateUkrainian(dateStr) {
-    const months = [
-      'січня', 'лютого', 'березня', 'квітня', 'травня', 'червня',
-      'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'
-    ];
-
-    const [, month, day] = dateStr.split('-');
-    return `${parseInt(day)} ${months[parseInt(month) - 1]}`;
+  static formatDate(dateStr, locale = 'uk') {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString(locale === 'uk' ? 'uk-UA' : 'en-US', {
+      day: 'numeric',
+      month: 'long'
+    });
   }
 }

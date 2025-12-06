@@ -19,7 +19,7 @@ export class AddressService {
         query,
         count: 0,
         addresses: [],
-        error: `Мінімальна довжина запиту: ${VALIDATION.MIN_SEARCH_QUERY_LENGTH} символи`
+        validationError: 'queryTooShort'
       };
     }
 
