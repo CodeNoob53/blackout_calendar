@@ -28,7 +28,7 @@ function filterLineographs(updates) {
 
     // Фільтруємо графіки з датою меншою за сьогодні
     if (update.parsed.date < todayStr) {
-      Logger.warning('SyncEngine', `Filtered lineograph: date=${update.parsed.date} (today=${todayStr})`);
+      Logger.debug('SyncEngine', `Filtered lineograph: date=${update.parsed.date} (today=${todayStr})`);
       return false;
     }
 
@@ -256,7 +256,7 @@ function writeSyncedData(date, timeline) {
     const newContent = normalizeQueuesForComparison(finalUpdate.parsed.queues);
 
     if (existingContent === newContent) {
-      Logger.debug('SyncEngine', `No content changes for ${date}, skipping write`);
+      // Logger.debug('SyncEngine', `No content changes for ${date}, skipping write`);
       return { updated: false, reason: 'no-changes' };
     }
   }
