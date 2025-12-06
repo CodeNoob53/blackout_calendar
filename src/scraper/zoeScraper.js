@@ -9,11 +9,9 @@ import Logger from "../utils/logger.js";
 import https from "https";
 import {
   generateScheduleHash,
-  generateZoeVersionId,
-  schedulesAreIdentical,
-  findScheduleDifferences,
-  formatDifferencesDescription
+  generateZoeVersionId
 } from "../utils/versionHelper.js";
+import { ScheduleProcessor } from "../services/ScheduleProcessor.js";
 
 const ZOE_URL = "https://www.zoe.com.ua/%D0%B3%D1%80%D0%B0%D1%84%D1%96%D0%BA%D0%B8-%D0%BF%D0%BE%D0%B3%D0%BE%D0%B4%D0%B8%D0%BD%D0%BD%D0%B8%D1%85-%D1%81%D1%82%D0%B0%D0%B1%D1%96%D0%BB%D1%96%D0%B7%D0%B0%D1%86%D1%96%D0%B9%D0%BD%D0%B8%D1%85/";
 
@@ -415,80 +413,42 @@ export async function updateFromZoe() {
     const validation = validateSchedule(parsed);
 
     if (!validation.valid) {
-      // Пропускаємо невалідні графіки (зазвичай старі дати)
       Logger.debug('ZoeScraper', `Skipped invalid schedule for ${parsed.date}: ${validation.reason}`);
       invalid++;
       continue;
     }
 
-    // Крок 2: Генеруємо хеш контенту графіка
-    const contentHash = generateScheduleHash(parsed);
-
-    // Крок 3: Перевіряємо чи вже є така версія
-    const latestVersion = ZoeRepository.getLatestVersion(parsed.date);
-
-    if (latestVersion) {
-      // Є попередня версія - порівнюємо хеші
-      if (schedulesAreIdentical(contentHash, latestVersion.content_hash)) {
-        // Контент ідентичний - пропускаємо
-        Logger.debug('ZoeScraper', `Schedule for ${parsed.date} unchanged (hash: ${contentHash.substring(0, 8)}...)`);
-        skipped++;
-        continue;
-      }
-
-      // Контент змінився - логуємо різницю
-      const oldData = JSON.parse(latestVersion.schedule_data);
-      const differences = findScheduleDifferences(oldData, parsed);
-      const diffDescription = formatDifferencesDescription(differences);
-      Logger.info('ZoeScraper', `Schedule for ${parsed.date} changed: ${diffDescription}`);
-    }
-
-    // Крок 4: Створюємо нову версію
-    const versionNumber = ZoeRepository.getNextVersionNumber(parsed.date);
-    const versionId = generateZoeVersionId(parsed.date, versionNumber);
-    const changeType = latestVersion ? 'updated' : 'new';
-
-    // Зберігаємо версію в новій таблиці
-    const saved = ZoeRepository.saveVersion(
-      versionId,
-      parsed.date,
-      versionNumber,
-      contentHash,
+    // Використовуємо ScheduleProcessor для обробки
+    const result = await ScheduleProcessor.process({
       parsed,
-      snapshotId,
-      changeType,
+      scheduleDate: parsed.date,
       messageDate,
-      pagePosition  // PHASE 1: Зберігаємо позицію на сторінці
-    );
+      rawContent: rawText,
+      metadata: {
+        snapshotId,
+        pagePosition
+      }
+    }, ZoeRepository, 'zoe');
 
-    if (!saved) {
-      Logger.error('ZoeScraper', `Failed to save version ${versionId}`);
-      continue;
-    }
-
-    // Крок 5: Також зберігаємо в старі таблиці для backward compatibility
-    // TODO: Поступово можна буде відмовитись від цього
-    const legacyResult = ScheduleRepository.upsertSchedule(parsed, versionNumber, messageDate || new Date().toISOString(), 'zoe');
-
-    if (legacyResult.updated) {
+    if (result.result === 'processed') {
       updated++;
-      Logger.success('ZoeScraper', `${changeType === 'new' ? 'New' : 'Updated'} ${parsed.date} version ${versionNumber} (${versionId})`);
-
-      if (changeType === "new") {
+      if (result.changeType === 'new') {
         newSchedules.push({
           date: parsed.date,
-          messageDate: messageDate || new Date().toISOString(),
-          versionId: versionId,
+          messageDate: result.messageDate,
+          versionId: result.versionId,
           source: 'zoe'
         });
       } else {
         updatedSchedules.push({
           date: parsed.date,
-          messageDate: messageDate || new Date().toISOString(),
-          versionId: versionId,
+          messageDate: result.messageDate,
+          versionId: result.versionId,
           source: 'zoe'
         });
       }
+    } else {
+      skipped++;
     }
   }
 

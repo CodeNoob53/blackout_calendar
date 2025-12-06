@@ -4,13 +4,11 @@ import { ScheduleRepository } from "../repositories/ScheduleRepository.js";
 import { TelegramRepository } from "../repositories/TelegramRepository.js";
 import config from "../config/index.js";
 import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
+import { ScheduleProcessor } from "../services/ScheduleProcessor.js";
 import Logger from "../utils/logger.js";
 import {
   generateScheduleHash,
-  generateTelegramVersionId,
-  schedulesAreIdentical,
-  findScheduleDifferences,
-  formatDifferencesDescription
+  generateTelegramVersionId
 } from "../utils/versionHelper.js";
 
 const CHANNEL_URL = config.telegram.channelUrl;
@@ -100,87 +98,43 @@ export async function updateFromTelegram() {
       continue;
     }
 
-    // Генеруємо хеш контенту
-    const contentHash = generateScheduleHash(parsed);
-
-    // Перевіряємо чи є попередня версія для цієї дати
-    const latestVersion = TelegramRepository.getLatestVersion(parsed.date);
-    let changeType = 'new';
-
-    if (latestVersion) {
-      // Є попередня версія - порівнюємо хеші
-      if (schedulesAreIdentical(contentHash, latestVersion.content_hash)) {
-        // Контент ідентичний - але це новий пост, можливо репост або дублікат
-        Logger.debug('TgScraper', `Post ${msgId} for ${parsed.date} has identical content to previous version`);
-        // Все одно зберігаємо, бо це окремий пост
-        changeType = 'updated'; // Технічно це "оновлення" хоч контент той самий
-      } else {
-        // Контент змінився
-        const oldData = JSON.parse(latestVersion.schedule_data);
-        const differences = findScheduleDifferences(oldData, parsed);
-        const diffDescription = formatDifferencesDescription(differences);
-        Logger.info('TgScraper', `Post ${msgId}: Schedule for ${parsed.date} changed: ${diffDescription}`);
-        changeType = 'updated';
-      }
-    }
-
-    // Створюємо version ID
-    const versionId = generateTelegramVersionId(msgId);
-
-    // Зберігаємо версію
-    const saved = TelegramRepository.saveVersion(
-      versionId,
-      parsed.date,
-      msgId,
-      messageDate,
-      contentHash,
+    // Processing with ScheduleProcessor
+    const result = await ScheduleProcessor.process({
       parsed,
-      snapshotId,
-      changeType
-    );
+      scheduleDate: parsed.date,
+      messageDate,
+      rawContent: '', // Not strictly needed for logic, but kept for consistency
+      metadata: {
+        snapshotId,
+        postId: msgId
+      }
+    }, TelegramRepository, 'telegram');
 
-    if (!saved) {
-      Logger.error('TgScraper', `Failed to save version ${versionId}`);
-      continue;
-    }
-
-    // Також зберігаємо в старі таблиці для backward compatibility
-    const result = ScheduleRepository.upsertSchedule(parsed, msgId, messageDate, 'telegram');
-
-    if (!result.updated) {
-      skipped++;
-    } else {
+    if (result.result === 'processed') {
       updated++;
-      Logger.success('TgScraper', `${changeType === 'new' ? 'New' : 'Updated'} ${parsed.date} from post ${msgId} (${versionId})`);
-
-      // Зберігаємо для push-повідомлень тільки останні зміни для кожної дати
-      if (changeType === "new") {
-        // Видаляємо попередню new-запис для цієї дати (якщо є)
+      if (result.changeType === 'new') {
         const existingIndex = newSchedules.findIndex(s => s.date === parsed.date);
-        if (existingIndex !== -1) {
-          newSchedules.splice(existingIndex, 1);
-        }
+        if (existingIndex !== -1) newSchedules.splice(existingIndex, 1);
 
         newSchedules.push({
           date: parsed.date,
           messageDate: result.messageDate,
           postId: msgId,
-          versionId: versionId
+          versionId: result.versionId
         });
       } else {
-        // Видаляємо попередній updated-запис для цієї дати (якщо є)
         const existingIndex = updatedSchedules.findIndex(s => s.date === parsed.date);
-        if (existingIndex !== -1) {
-          updatedSchedules.splice(existingIndex, 1);
-        }
+        if (existingIndex !== -1) updatedSchedules.splice(existingIndex, 1);
 
         updatedSchedules.push({
           date: parsed.date,
           messageDate: result.messageDate,
           postId: msgId,
-          versionId: versionId
+          versionId: result.versionId
         });
       }
+    } else {
+      skipped++;
     }
   }
 
