@@ -1,14 +1,8 @@
 import * as cheerio from "cheerio";
 import axios from "axios";
 import { parseScheduleMessage } from "./parser.js";
-import {
-  insertParsedSchedule,
-  getScheduleMetadata,
-  saveZoeSnapshot,
-  getLatestZoeVersion,
-  getNextZoeVersionNumber,
-  saveZoeVersion
-} from "../db.js";
+import { ScheduleRepository } from "../repositories/ScheduleRepository.js";
+import { ZoeRepository } from "../repositories/ZoeRepository.js";
 import config from "../config/index.js";
 import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
 import Logger from "../utils/logger.js";
@@ -405,7 +399,7 @@ export async function updateFromZoe() {
 
   // Крок 1: Зберігаємо raw HTML snapshot
   const parsedSchedules = parseZoeHTML(html);
-  const snapshotId = saveZoeSnapshot(html, parsedSchedules);
+  const snapshotId = ZoeRepository.saveSnapshot(html, parsedSchedules);
   Logger.debug('ZoeScraper', `Saved snapshot #${snapshotId}`);
 
   Logger.info('ZoeScraper', `Found ${parsedSchedules.length} potential schedules`);
@@ -431,7 +425,7 @@ export async function updateFromZoe() {
     const contentHash = generateScheduleHash(parsed);
 
     // Крок 3: Перевіряємо чи вже є така версія
-    const latestVersion = getLatestZoeVersion(parsed.date);
+    const latestVersion = ZoeRepository.getLatestVersion(parsed.date);
 
     if (latestVersion) {
       // Є попередня версія - порівнюємо хеші
@@ -450,12 +444,12 @@ export async function updateFromZoe() {
     }
 
     // Крок 4: Створюємо нову версію
-    const versionNumber = getNextZoeVersionNumber(parsed.date);
+    const versionNumber = ZoeRepository.getNextVersionNumber(parsed.date);
     const versionId = generateZoeVersionId(parsed.date, versionNumber);
     const changeType = latestVersion ? 'updated' : 'new';
 
     // Зберігаємо версію в новій таблиці
-    const saved = saveZoeVersion(
+    const saved = ZoeRepository.saveVersion(
       versionId,
       parsed.date,
       versionNumber,
@@ -474,7 +468,7 @@ export async function updateFromZoe() {
 
     // Крок 5: Також зберігаємо в старі таблиці для backward compatibility
     // TODO: Поступово можна буде відмовитись від цього
-    const legacyResult = insertParsedSchedule(parsed, versionNumber, messageDate || new Date().toISOString(), 'zoe');
+    const legacyResult = ScheduleRepository.upsertSchedule(parsed, versionNumber, messageDate || new Date().toISOString(), 'zoe');
 
     if (legacyResult.updated) {
       updated++;

@@ -1,12 +1,7 @@
 import * as cheerio from "cheerio";
 import { parseScheduleMessage } from "./parser.js";
-import {
-  insertParsedSchedule,
-  saveTelegramSnapshot,
-  getTelegramVersionByPostId,
-  getLatestTelegramVersion,
-  saveTelegramVersion
-} from "../db.js";
+import { ScheduleRepository } from "../repositories/ScheduleRepository.js";
+import { TelegramRepository } from "../repositories/TelegramRepository.js";
 import config from "../config/index.js";
 import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
 import Logger from "../utils/logger.js";
@@ -74,7 +69,7 @@ export async function updateFromTelegram() {
     const parsed = parseScheduleMessage(msg.text);
     if (parsed.date && parsed.queues.length > 0) {
       // Зберігаємо snapshot для кожного поста
-      const snapshotId = saveTelegramSnapshot(msg.id, msg.messageDate, msg.text, parsed);
+      const snapshotId = TelegramRepository.saveSnapshot(msg.id, msg.messageDate, msg.text, parsed);
 
       parsedMessages.push({
         msgId: msg.id,
@@ -98,7 +93,7 @@ export async function updateFromTelegram() {
 
   for (const { msgId, parsed, messageDate, snapshotId } of parsedMessages) {
     // Перевіряємо чи вже обробили цей пост
-    const existingVersion = getTelegramVersionByPostId(msgId);
+    const existingVersion = TelegramRepository.getVersionByPostId(msgId);
     if (existingVersion) {
       Logger.debug('TgScraper', `Post ${msgId} already processed, skipping`);
       skipped++;
@@ -109,7 +104,7 @@ export async function updateFromTelegram() {
     const contentHash = generateScheduleHash(parsed);
 
     // Перевіряємо чи є попередня версія для цієї дати
-    const latestVersion = getLatestTelegramVersion(parsed.date);
+    const latestVersion = TelegramRepository.getLatestVersion(parsed.date);
     let changeType = 'new';
 
     if (latestVersion) {
@@ -133,7 +128,7 @@ export async function updateFromTelegram() {
     const versionId = generateTelegramVersionId(msgId);
 
     // Зберігаємо версію
-    const saved = saveTelegramVersion(
+    const saved = TelegramRepository.saveVersion(
       versionId,
       parsed.date,
       msgId,
@@ -150,7 +145,7 @@ export async function updateFromTelegram() {
     }
 
     // Також зберігаємо в старі таблиці для backward compatibility
-    const result = insertParsedSchedule(parsed, msgId, messageDate, 'telegram');
+    const result = ScheduleRepository.upsertSchedule(parsed, msgId, messageDate, 'telegram');
 
     if (!result.updated) {
       skipped++;

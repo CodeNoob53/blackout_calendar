@@ -5,6 +5,7 @@
  */
 
 import { db } from '../db.js';
+import Logger from '../utils/logger.js';
 
 export class ScheduleRepository {
   /**
@@ -171,7 +172,174 @@ export class ScheduleRepository {
       ORDER BY last_updated_at DESC
       LIMIT 1
     `);
-
     return stmt.all(today, since);
   }
+
+  /**
+   * Зберегти або оновити розклад
+   * ported from db.insertParsedSchedule
+   */
+  static upsertSchedule(data, sourceMsgId, messageDate = null, source = 'telegram') {
+    const metadata = this.findMetadataByDate(data.date);
+    const existingMsgId = metadata?.source_msg_id;
+    const existingSource = metadata?.source || 'telegram';
+
+    // Визначаємо тип ID: Telegram (малі числа) vs Zoe (timestamp)
+    const isNewFromTelegram = source === 'telegram';
+    const isExistingFromTelegram = existingSource === 'telegram';
+
+    // 1. Якщо повідомлення старіше за те, що ми вже обробили - ігноруємо
+    if (existingMsgId) {
+      // Якщо обидва з одного джерела - просте порівняння
+      if (isNewFromTelegram === isExistingFromTelegram) {
+        if (sourceMsgId < existingMsgId) {
+          // Старіше повідомлення, пропускаємо
+          return { updated: false, changeType: null };
+        }
+      }
+      // Якщо з різних джерел - порівнюємо за часом публікації (messageDate)
+      else if (messageDate && metadata.message_date) {
+        const newTime = new Date(messageDate).getTime();
+        const existingTime = new Date(metadata.message_date).getTime();
+        if (newTime < existingTime) {
+          // Старіше оновлення, пропускаємо
+          return { updated: false, changeType: null };
+        }
+      }
+    }
+
+    // 2. Якщо це те саме повідомлення з того самого джерела - ігноруємо
+    if (existingMsgId === sourceMsgId && existingSource === source) {
+      // Те саме повідомлення, пропускаємо
+      return { updated: false, changeType: null };
+    }
+
+    // 3. Якщо повідомлення новіше, перевіряємо чи змінився контент
+    if (existingMsgId) {
+      const existingSchedule = this.findByDate(data.date);
+      if (schedulesAreEqual(data.queues, existingSchedule)) {
+        // Контент той самий, просто оновлюємо ID повідомлення (щоб знати що ми "бачили" новіше)
+        const updateMetadataIdOnly = db.prepare(`
+          UPDATE schedule_metadata
+          SET source_msg_id = ?, message_date = ?
+          WHERE date = ?
+        `);
+        updateMetadataIdOnly.run(sourceMsgId, messageDate, data.date);
+
+        // Контент ідентичний, пропускаємо
+        return { updated: false, changeType: null };
+      }
+    }
+
+    const now = new Date().toISOString();
+    const changeType = existingMsgId ? "updated" : "new";
+
+    const deleteStmt = db.prepare(`
+      DELETE FROM outages WHERE date = ?
+    `);
+
+    const insertStmt = db.prepare(`
+      INSERT INTO outages (date, queue, start_time, end_time, source_msg_id, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    const insertHistory = db.prepare(`
+      INSERT INTO schedule_history (date, source_msg_id, change_type, message_date, data_json)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    const insertMetadata = db.prepare(`
+      INSERT INTO schedule_metadata (date, source_msg_id, source, message_date, first_published_at, last_updated_at, update_count, change_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const updateMetadata = db.prepare(`
+      UPDATE schedule_metadata
+      SET source_msg_id = ?, source = ?, message_date = ?, last_updated_at = ?, update_count = update_count + 1, change_type = ?
+      WHERE date = ?
+    `);
+
+    const upsertAction = db.transaction((date, queues, msgId, msgDate, chgType, src) => {
+      try {
+        // Спочатку видаляємо всі старі записи для цієї дати
+        deleteStmt.run(date);
+
+        // Потім додаємо нові
+        for (const q of queues) {
+          for (const interval of q.intervals) {
+            insertStmt.run(date, q.queue, interval.start, interval.end, msgId, now);
+          }
+        }
+
+        // Зберігаємо в історію
+        const historyData = JSON.stringify({ date, queues, source_msg_id: msgId, source: src });
+        insertHistory.run(date, msgId, chgType, msgDate, historyData);
+
+        // Оновлюємо або створюємо метадані
+        if (metadata) {
+          updateMetadata.run(msgId, src, msgDate, now, chgType, date);
+        } else {
+          insertMetadata.run(date, msgId, src, msgDate, now, now, 0, chgType);
+        }
+      } catch (error) {
+        Logger.error('Database', `Transaction failed for date ${date}`, error);
+        throw error; // Re-throw to trigger transaction rollback
+      }
+    });
+
+    try {
+      upsertAction(data.date, data.queues, sourceMsgId, messageDate, changeType, source);
+    } catch (error) {
+      Logger.error('Database', `Failed to insert schedule for ${data.date}`, error);
+      return { updated: false, changeType: null, error: error.message };
+    }
+
+    if (existingMsgId) {
+      Logger.success('Database', `Updated ${data.date} from ${source} (${data.queues.length} queues) ${existingSource} ${existingMsgId} → ${source} ${sourceMsgId}`);
+    } else {
+      Logger.success('Database', `New schedule ${data.date} from ${source} (${data.queues.length} queues) post ${sourceMsgId}`);
+    }
+
+    return { updated: true, changeType, messageDate };
+  }
+}
+
+function schedulesAreEqual(newQueues, existingOutages) {
+  // Flatten newQueues
+  const newFlat = [];
+  for (const q of newQueues) {
+    for (const i of q.intervals) {
+      newFlat.push({ queue: q.queue, start: i.start, end: i.end });
+    }
+  }
+
+  // Map existingOutages to same format
+  const existingFlat = existingOutages.map(o => ({
+    queue: o.queue,
+    start: o.start_time,
+    end: o.end_time
+  }));
+
+  if (newFlat.length !== existingFlat.length) return false;
+
+  // Sort both
+  const sortFn = (a, b) => {
+    if (a.queue !== b.queue) return a.queue.localeCompare(b.queue);
+    if (a.start !== b.start) return a.start.localeCompare(b.start);
+    return a.end.localeCompare(b.end);
+  };
+
+  newFlat.sort(sortFn);
+  existingFlat.sort(sortFn);
+
+  // Порівнюємо безпосередньо замість JSON.stringify (швидше для великих масивів)
+  for (let i = 0; i < newFlat.length; i++) {
+    const a = newFlat[i];
+    const b = existingFlat[i];
+    if (a.queue !== b.queue || a.start !== b.start || a.end !== b.end) {
+      return false;
+    }
+  }
+
+  return true;
 }
