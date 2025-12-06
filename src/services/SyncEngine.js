@@ -26,9 +26,13 @@ function filterLineographs(updates) {
   return updates.filter(update => {
     if (!update.parsed.date) return false;
 
-    // Фільтруємо графіки з датою меншою за сьогодні
-    if (update.parsed.date < todayStr) {
-      Logger.debug('SyncEngine', `Filtered lineograph: date=${update.parsed.date} (today=${todayStr})`);
+    // Фільтруємо графіки старші за 7 днів
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const minDateStr = sevenDaysAgo.toISOString().split('T')[0];
+
+    if (update.parsed.date < minDateStr) {
+      Logger.debug('SyncEngine', `Filtered old schedule: date=${update.parsed.date} (min=${minDateStr})`);
       return false;
     }
 
@@ -235,29 +239,36 @@ function writeSyncedData(date, timeline) {
     // Отримуємо існуючі outages для порівняння
     const existingOutages = db.prepare('SELECT queue, start_time, end_time FROM outages WHERE date = ? ORDER BY queue, start_time').all(date);
 
-    // Конвертуємо в формат queues для порівняння
-    const existingQueues = [];
-    const queueMap = new Map();
+    // FIX: Якщо метадані є, але графік порожній (наприклад, після ручного видалення або помилки)
+    // то вважаємо, що дані треба перезаписати
+    if (existingOutages.length === 0) {
+      Logger.debug('SyncEngine', `Metadata exists but no outages found for ${date}, forcing write`);
+      // Продовжуємо виконання (skip return)
+    } else {
+      // Конвертуємо в формат queues для порівняння
+      const existingQueues = [];
+      const queueMap = new Map();
 
-    for (const outage of existingOutages) {
-      if (!queueMap.has(outage.queue)) {
-        queueMap.set(outage.queue, { queue: outage.queue, intervals: [] });
+      for (const outage of existingOutages) {
+        if (!queueMap.has(outage.queue)) {
+          queueMap.set(outage.queue, { queue: outage.queue, intervals: [] });
+        }
+        queueMap.get(outage.queue).intervals.push({
+          start: outage.start_time,
+          end: outage.end_time
+        });
       }
-      queueMap.get(outage.queue).intervals.push({
-        start: outage.start_time,
-        end: outage.end_time
-      });
-    }
 
-    queueMap.forEach(q => existingQueues.push(q));
+      queueMap.forEach(q => existingQueues.push(q));
 
-    // Порівнюємо контент
-    const existingContent = normalizeQueuesForComparison(existingQueues);
-    const newContent = normalizeQueuesForComparison(finalUpdate.parsed.queues);
+      // Порівнюємо контент
+      const existingContent = normalizeQueuesForComparison(existingQueues);
+      const newContent = normalizeQueuesForComparison(finalUpdate.parsed.queues);
 
-    if (existingContent === newContent) {
-      // Logger.debug('SyncEngine', `No content changes for ${date}, skipping write`);
-      return { updated: false, reason: 'no-changes' };
+      if (existingContent === newContent) {
+        // Logger.debug('SyncEngine', `No content changes for ${date}, skipping write`);
+        return { updated: false, reason: 'no-changes' };
+      }
     }
   }
 
