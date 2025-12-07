@@ -8,6 +8,7 @@ import {
 } from "../utils/versionHelper.js";
 import { ScheduleRepository } from "../repositories/ScheduleRepository.js";
 import Logger from "../utils/logger.js";
+import { NotificationService } from "./NotificationService.js";
 
 export class ScheduleProcessor {
     /**
@@ -102,7 +103,10 @@ export class ScheduleProcessor {
 
         // 6. Оновлення основної таблиці (Legacy / Compatibility layer)
         // Тут джерелом передаємо sourceName
-        const legacyId = sourceName === 'zoe' ? versionNumber : metadata.postId;
+        // Для Zoe використовуємо timestamp як ID, щоб він був завжди > за старі ID (які можуть бути типу 20251206)
+        const legacyId = sourceName === 'zoe'
+            ? new Date(finalMessageDate).getTime()
+            : metadata.postId;
 
         // ВАЖЛИВО: для Zoe використовуємо поточний час як messageDate якщо його немає на сайті
         const finalMessageDate = messageDate || new Date().toISOString();
@@ -113,12 +117,19 @@ export class ScheduleProcessor {
             const logPrefix = changeType === 'new' ? 'New' : 'Updated';
             const idInfo = sourceName === 'zoe' ? `version ${versionNumber}` : `post ${metadata.postId}`;
             Logger.success('ScheduleProcessor', `${sourceName}: ${logPrefix} ${scheduleDate} (${idInfo})`);
+
+            // Send Push Notification
+            NotificationService.notifyScheduleChange(parsed, changeType).catch(err => {
+                Logger.error('ScheduleProcessor', 'Failed to send notification', err);
+            });
+
             return {
                 result: 'processed',
                 changeType,
                 versionId,
                 messageDate: finalMessageDate
             };
+
         } else {
             return { result: 'skipped', reason: 'legacy-no-update' };
         }

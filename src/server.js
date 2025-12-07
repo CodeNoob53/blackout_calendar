@@ -110,6 +110,12 @@ app.post("/api/update", (_req, res) => {
   res.redirect(307, "/api/updates/trigger");
 });
 
+// DEBUG ENDPOINT
+app.get("/api/debug/history", (req, res) => {
+  const history = db.prepare("SELECT * FROM schedule_history ORDER BY detected_at DESC").all();
+  res.json({ count: history.length, rows: history });
+});
+
 // Health check endpoint
 app.get("/health", (req, res) => {
   const cacheStats = cache.getStats();

@@ -155,6 +155,23 @@ export function initDatabase() {
     Logger.success('Database', 'Migration: Created telegram_snapshots table');
   }
 
+  if (!tableNames.includes('push_subscriptions')) {
+    db.exec(`
+      CREATE TABLE push_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        endpoint TEXT NOT NULL UNIQUE,
+        keys_p256dh TEXT NOT NULL,
+        keys_auth TEXT NOT NULL,
+        user_agent TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_active DATETIME DEFAULT CURRENT_TIMESTAMP,
+        failure_count INTEGER DEFAULT 0
+      );
+    `);
+    Logger.success('Database', 'Migration: Created push_subscriptions table');
+  }
+
   if (!tableNames.includes('zoe_schedule_versions')) {
     db.exec(`
       CREATE TABLE zoe_schedule_versions (

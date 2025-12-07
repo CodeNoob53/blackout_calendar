@@ -146,10 +146,9 @@ export class ScheduleRepository {
 
     const stmt = db.prepare(`
       SELECT * FROM schedule_metadata
-      WHERE date > ?
+      WHERE date >= ?
         AND (first_published_at > ? OR (change_type = 'updated' AND last_updated_at > ?))
       ORDER BY date DESC, COALESCE(last_updated_at, first_published_at) DESC
-      LIMIT 1
     `);
 
     return stmt.all(today, since, since);
@@ -164,15 +163,41 @@ export class ScheduleRepository {
     const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
     const today = new Date().toISOString().split('T')[0];
 
+    Logger.debug('ScheduleRepository', `Finding updates for ${today} since ${since}`);
+
+    // REMOVED change_type = 'updated' filter to show ALL history for debug
     const stmt = db.prepare(`
-      SELECT * FROM schedule_metadata
+      SELECT 
+        id, 
+        date, 
+        source_msg_id, 
+        change_type, 
+        message_date, 
+        detected_at as last_updated_at,
+        data_json
+      FROM schedule_history
       WHERE date = ?
-        AND change_type = 'updated'
-        AND last_updated_at > ?
-      ORDER BY last_updated_at DESC
-      LIMIT 1
+        AND detected_at > ?
+      ORDER BY detected_at DESC
     `);
-    return stmt.all(today, since);
+
+    const rows = stmt.all(today, since);
+    Logger.debug('ScheduleRepository', `Found ${rows.length} history items`);
+
+    // Map history rows to expected object structure
+    return rows.map(row => {
+      let source = 'telegram';
+      try {
+        const data = JSON.parse(row.data_json);
+        if (data.source) source = data.source;
+      } catch (e) { /* ignore parse error */ }
+
+      return {
+        ...row,
+        source,
+        update_count: 1 // Each history item is 1 update
+      };
+    });
   }
 
   /**
@@ -208,26 +233,27 @@ export class ScheduleRepository {
       }
     }
 
-    // 2. Якщо це те саме повідомлення з того самого джерела - ігноруємо
-    if (existingMsgId === sourceMsgId && existingSource === source) {
-      // Те саме повідомлення, пропускаємо
-      return { updated: false, changeType: null };
-    }
 
-    // 3. Якщо повідомлення новіше, перевіряємо чи змінився контент
+
+    // 3. Перевірка на зміни
     if (existingMsgId) {
-      const existingSchedule = this.findByDate(data.date);
-      if (schedulesAreEqual(data.queues, existingSchedule)) {
-        // Контент той самий, просто оновлюємо ID повідомлення (щоб знати що ми "бачили" новіше)
-        const updateMetadataIdOnly = db.prepare(`
-          UPDATE schedule_metadata
-          SET source_msg_id = ?, message_date = ?
-          WHERE date = ?
-        `);
-        updateMetadataIdOnly.run(sourceMsgId, messageDate, data.date);
+      // Якщо це те саме повідомлення (Edit), перевіряємо чи змінився контент
+      if (existingMsgId === sourceMsgId) {
+        const existingSchedule = this.findByDate(data.date);
+        // Якщо контент ідентичний - ігноруємо
+        if (schedulesAreEqual(data.queues, existingSchedule)) {
+          return { updated: false, changeType: null };
+        }
+        // Якщо контент змінився - це Edit, йдемо далі до upsert
+      } else {
+        // Якщо це НОВЕ повідомлення (New ID), ми його записуємо,
+        // навіть якщо контент ідентичний (щоб зафіксувати факт оновлення від обленерго)
+        // АЛЕ перевідимо, чи не є це "старе" повідомлення (Condition 1 handled this earlier?)
+        // Condition 1 checks "if sourceMsgId < existingMsgId".
+        // So here we know it IS new or equal.
 
-        // Контент ідентичний, пропускаємо
-        return { updated: false, changeType: null };
+        // Optional: If you want to skip identical reposts, keep the check.
+        // But user wants to see "3 updates", so we should allow it.
       }
     }
 

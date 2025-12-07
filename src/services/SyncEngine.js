@@ -302,27 +302,35 @@ function writeSyncedData(date, timeline) {
       }
     }
 
-    // 3. Записуємо тільки фінальний апдейт в історію
+    // 3. Записуємо ВСІ апдейти в історію (не тільки фінальний)
     const insertHistory = db.prepare(`
-      INSERT INTO schedule_history (date, source_msg_id, change_type, message_date, data_json)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO schedule_history (date, source_msg_id, change_type, message_date, data_json, detected_at)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
 
-    const changeType = updateCount > 1 ? 'updated' : 'new';
-    const historyData = JSON.stringify({
-      date,
-      queues: finalUpdate.parsed.queues,
-      source_msg_id: finalUpdate.sourceId,
-      source: finalUpdate.source
-    });
+    // Записуємо всі оновлення з timeline
+    for (let i = 0; i < timeline.length; i++) {
+      const update = timeline[i];
+      const changeType = i === 0 ? 'new' : 'updated';
+      const historyData = JSON.stringify({
+        date,
+        queues: update.parsed.queues,
+        source_msg_id: update.sourceId,
+        source: update.source
+      });
 
-    insertHistory.run(
-      date,
-      finalUpdate.sourceId,
-      changeType,
-      finalUpdate.messageDate,
-      historyData
-    );
+      // Використовуємо messageDate як detected_at щоб зберегти правильний час
+      const detectedAt = update.messageDate || new Date().toISOString();
+
+      insertHistory.run(
+        date,
+        update.sourceId,
+        changeType,
+        update.messageDate,
+        historyData,
+        detectedAt
+      );
+    }
 
     // 4. Записуємо метадані з правильним update_count
     const insertMetadata = db.prepare(`
@@ -343,6 +351,9 @@ function writeSyncedData(date, timeline) {
     const firstUpdate = timeline[0];
     const firstPublishedAt = firstUpdate.messageDate || now;
 
+    // changeType для метаданих
+    const metadataChangeType = updateCount > 1 ? 'updated' : 'new';
+
     insertMetadata.run(
       date,
       finalUpdate.sourceId,
@@ -351,7 +362,7 @@ function writeSyncedData(date, timeline) {
       firstPublishedAt,
       now,
       updateCount - 1, // update_count = кількість змін (не включаючи перший запис)
-      changeType
+      metadataChangeType
     );
 
     Logger.success('SyncEngine', `Synced ${date}: ${updateCount} updates, final=${finalUpdate.source}`);
