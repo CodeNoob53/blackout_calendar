@@ -13,6 +13,7 @@ import updateRoutes from "./routes/updateRoutes.js";
 import addressRoutes from "./routes/addressRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import { NotificationService } from "./services/NotificationService.js";
+import { initScheduleNotificationService } from "./services/ScheduleNotificationService.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import Logger from "./utils/logger.js";
@@ -30,6 +31,9 @@ initDatabase();
 
 // Ініціалізуємо сервіс повідомлень
 NotificationService.init();
+
+// Ініціалізуємо сервіс автоматичних сповіщень про відключення/включення
+initScheduleNotificationService();
 
 const app = express();
 const PORT = config.server.port;

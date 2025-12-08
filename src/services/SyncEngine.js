@@ -15,6 +15,7 @@ import { db } from "../db.js";
 import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
 import Logger from "../utils/logger.js";
 import { NotificationService } from "./NotificationService.js";
+import { rescheduleNotifications } from "./ScheduleNotificationService.js";
 
 /**
  * Фільтрує лайнографіки (графіки з датою меншою за сьогодні)
@@ -371,10 +372,17 @@ function writeSyncedData(date, timeline) {
 
   transaction();
 
-  // Send Push Notification
+  // Send Push Notification про зміну графіка
   NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType).catch(err => {
     Logger.error('SyncEngine', 'Failed to send notification', err);
   });
+
+  // Перепланувати автоматичні сповіщення (power_off_30min, power_on)
+  try {
+    rescheduleNotifications(date);
+  } catch (err) {
+    Logger.error('SyncEngine', 'Failed to reschedule notifications', err);
+  }
 
   return { updated: true, updateCount, changeType: metadataChangeType };
 }

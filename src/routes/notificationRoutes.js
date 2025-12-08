@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { NotificationService } from '../services/NotificationService.js';
+import { rescheduleNotifications, getNotificationStats } from '../services/ScheduleNotificationService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import process from 'process';
 
@@ -194,6 +195,56 @@ router.post('/test', asyncHandler(async (req, res) => {
  */
 router.get('/subscriptions/count', (req, res) => {
     const stats = NotificationService.getSubscriptionStats();
+    res.json({ success: true, ...stats });
+});
+
+/**
+ * @swagger
+ * /api/notifications/reschedule:
+ *   post:
+ *     summary: Manually reschedule notifications for a specific date (debug only)
+ *     tags: [Notifications]
+ *     description: Reschedules all notifications (power_off_30min, power_on) for the specified date based on current schedule
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               date:
+ *                 type: string
+ *                 format: date
+ *                 description: Date in YYYY-MM-DD format. Defaults to today if not provided.
+ *     responses:
+ *       200:
+ *         description: Notifications rescheduled
+ */
+router.post('/reschedule', asyncHandler(async (req, res) => {
+    try {
+        const date = req.body.date || new Date().toISOString().split('T')[0];
+        rescheduleNotifications(date);
+        res.json({
+            success: true,
+            message: `Notifications rescheduled for ${date}`
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+}));
+
+/**
+ * @swagger
+ * /api/notifications/schedule-stats:
+ *   get:
+ *     summary: Get statistics about sent schedule notifications (debug only)
+ *     tags: [Notifications]
+ *     responses:
+ *       200:
+ *         description: Schedule notification statistics
+ */
+router.get('/schedule-stats', (req, res) => {
+    const stats = getNotificationStats();
     res.json({ success: true, ...stats });
 });
 
