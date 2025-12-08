@@ -14,6 +14,7 @@ import { parseScheduleMessage } from "../scraper/parser.js";
 import { db } from "../db.js";
 import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
 import Logger from "../utils/logger.js";
+import { NotificationService } from "./NotificationService.js";
 
 /**
  * Фільтрує лайнографіки (графіки з датою меншою за сьогодні)
@@ -274,6 +275,9 @@ function writeSyncedData(date, timeline) {
 
   Logger.info('SyncEngine', `Writing synced data for ${date}: ${updateCount} updates, final from ${finalUpdate.source}`);
 
+  // changeType для метаданих та повідомлень
+  const metadataChangeType = updateCount > 1 ? 'updated' : 'new';
+
   // Використовуємо транзакцію для атомарного запису
   const transaction = db.transaction(() => {
     // 1. Видаляємо існуючі дані
@@ -351,9 +355,6 @@ function writeSyncedData(date, timeline) {
     const firstUpdate = timeline[0];
     const firstPublishedAt = firstUpdate.messageDate || now;
 
-    // changeType для метаданих
-    const metadataChangeType = updateCount > 1 ? 'updated' : 'new';
-
     insertMetadata.run(
       date,
       finalUpdate.sourceId,
@@ -370,7 +371,12 @@ function writeSyncedData(date, timeline) {
 
   transaction();
 
-  return { updated: true, updateCount, changeType: updateCount > 1 ? 'updated' : 'new' };
+  // Send Push Notification
+  NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType).catch(err => {
+    Logger.error('SyncEngine', 'Failed to send notification', err);
+  });
+
+  return { updated: true, updateCount, changeType: metadataChangeType };
 }
 
 /**

@@ -231,4 +231,21 @@ export function initDatabase() {
     db.exec(`ALTER TABLE zoe_schedule_versions ADD COLUMN page_position INTEGER`);
     Logger.success('Database', 'Migration: Added page_position to zoe_schedule_versions');
   }
+
+  // MIGRATION: Розширення push_subscriptions для персоналізованих сповіщень
+  const pushSubsInfo = db.prepare("PRAGMA table_info(push_subscriptions)").all();
+  const hasSelectedQueue = pushSubsInfo.some(col => col.name === 'selected_queue');
+  const hasNotificationTypes = pushSubsInfo.some(col => col.name === 'notification_types');
+
+  if (!hasSelectedQueue) {
+    db.exec(`ALTER TABLE push_subscriptions ADD COLUMN selected_queue TEXT`);
+    Logger.success('Database', 'Migration: Added selected_queue to push_subscriptions');
+  }
+
+  if (!hasNotificationTypes) {
+    // JSON масив типів сповіщень: ["all", "schedule_change", "tomorrow_schedule", "power_off_30min", "power_on", "emergency"]
+    // За замовчуванням - всі загальні сповіщення
+    db.exec(`ALTER TABLE push_subscriptions ADD COLUMN notification_types TEXT DEFAULT '["all","schedule_change","tomorrow_schedule"]'`);
+    Logger.success('Database', 'Migration: Added notification_types to push_subscriptions');
+  }
 }

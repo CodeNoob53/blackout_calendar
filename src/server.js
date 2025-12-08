@@ -11,6 +11,8 @@ import { orchestrator } from "./services/SyncEngine.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
 import updateRoutes from "./routes/updateRoutes.js";
 import addressRoutes from "./routes/addressRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
+import { NotificationService } from "./services/NotificationService.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import Logger from "./utils/logger.js";
@@ -25,6 +27,9 @@ const __dirname = dirname(__filename);
 
 // Ініціалізуємо базу даних
 initDatabase();
+
+// Ініціалізуємо сервіс повідомлень
+NotificationService.init();
 
 const app = express();
 const PORT = config.server.port;
@@ -88,6 +93,7 @@ app.get("/", (req, res) => {
 app.use("/api/schedules", scheduleLimiter, scheduleRoutes);
 app.use("/api/updates", updatesLimiter, updateRoutes);
 app.use("/api/addresses", searchLimiter, addressRoutes);
+app.use("/api/notifications", generalLimiter, notificationRoutes);
 
 // Backwards compatibility routes (deprecated)
 app.get("/api/schedule/:date", (req, res) => {
