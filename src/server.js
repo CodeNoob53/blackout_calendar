@@ -195,12 +195,16 @@ class AutoUpdateService {
 
     Logger.success('Scheduler', `Auto-update enabled (${this.interval})`);
 
-    // Запускаємо оновлення при старті
-    this.performUpdate("initial");
+    // Запускаємо оновлення при старті (не блокуємо старт сервера)
+    this.performUpdate("initial").catch(err => {
+      Logger.error('Scheduler', 'Initial update failed (non-critical)', err);
+    });
 
     // Планове оновлення
     nodeCron.schedule(this.interval, () => {
-      this.performUpdate("scheduled");
+      this.performUpdate("scheduled").catch(err => {
+        Logger.error('Scheduler', 'Scheduled update failed (non-critical)', err);
+      });
     });
   }
 }
@@ -280,5 +284,6 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (reason, promise) => {
   Logger.error('Server', 'Unhandled Rejection at:', promise, 'reason:', reason);
-  gracefulShutdown('unhandledRejection');
+  // НЕ зупиняємо сервер - може бути некритична помилка (наприклад, fetch timeout)
+  // gracefulShutdown('unhandledRejection');
 });
