@@ -176,7 +176,8 @@ router.post('/test', asyncHandler(async (req, res) => {
             success: true,
             message: 'Test notification sent',
             sent: result.sent,
-            failed: result.failed
+            failed: result.failed,
+            errors: result.errors || []
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -197,6 +198,33 @@ router.get('/subscriptions/count', (req, res) => {
     const stats = NotificationService.getSubscriptionStats();
     res.json({ success: true, ...stats });
 });
+
+/**
+ * @swagger
+ * /api/notifications/test-general:
+ *   post:
+ *     summary: Send test general notification (debug only)
+ *     tags: [Notifications]
+ *     description: Test general notifications (schedule_change) that should only go to users WITHOUT selected queue
+ *     responses:
+ *       200:
+ *         description: Test notification sent
+ */
+router.post('/test-general', asyncHandler(async (req, res) => {
+    try {
+        await NotificationService.notifyScheduleChange(
+            { date: new Date().toISOString().split('T')[0] },
+            'updated',
+            'schedule_change'
+        );
+        res.json({
+            success: true,
+            message: 'Test general notification sent (only to users without selected queue)'
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+}));
 
 /**
  * @swagger

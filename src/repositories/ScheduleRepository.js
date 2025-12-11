@@ -137,6 +137,7 @@ export class ScheduleRepository {
 
   /**
    * Отримати нові розклади за останні N годин
+   * ВАЖЛИВО: Показує тільки МАЙБУТНІ дати (завтра+), не сьогоднішні
    * @param {number} hoursAgo - Кількість годин назад
    * @returns {Array} Масив метаданих нових розкладів
    */
@@ -144,18 +145,23 @@ export class ScheduleRepository {
     const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
     const today = new Date().toISOString().split('T')[0];
 
+    // Завтра = сьогодні + 1 день
+    const tomorrow = new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split('T')[0];
+
     const stmt = db.prepare(`
       SELECT * FROM schedule_metadata
       WHERE date >= ?
-        AND (first_published_at > ? OR (change_type = 'updated' AND last_updated_at > ?))
-      ORDER BY date DESC, COALESCE(last_updated_at, first_published_at) DESC
+        AND first_published_at > ?
+        AND change_type = 'new'
+      ORDER BY date DESC, first_published_at DESC
     `);
 
-    return stmt.all(today, since, since);
+    return stmt.all(tomorrow, since);
   }
 
   /**
    * Отримати оновлені розклади за останні N годин
+   * ВАЖЛИВО: Показує тільки реальні ОНОВЛЕННЯ (change_type='updated'), не нові графіки
    * @param {number} hoursAgo - Кількість годин назад
    * @returns {Array} Масив метаданих оновлених розкладів
    */
@@ -165,24 +171,25 @@ export class ScheduleRepository {
 
     Logger.debug('ScheduleRepository', `Finding updates for ${today} since ${since}`);
 
-    // REMOVED change_type = 'updated' filter to show ALL history for debug
+    // Фільтруємо тільки ОНОВЛЕННЯ (не 'new'), для СЬОГОДНІШНЬОЇ дати
     const stmt = db.prepare(`
-      SELECT 
-        id, 
-        date, 
-        source_msg_id, 
-        change_type, 
-        message_date, 
+      SELECT
+        id,
+        date,
+        source_msg_id,
+        change_type,
+        message_date,
         detected_at as last_updated_at,
         data_json
       FROM schedule_history
       WHERE date = ?
         AND detected_at > ?
+        AND change_type = 'updated'
       ORDER BY detected_at DESC
     `);
 
     const rows = stmt.all(today, since);
-    Logger.debug('ScheduleRepository', `Found ${rows.length} history items`);
+    Logger.debug('ScheduleRepository', `Found ${rows.length} updated items (filtered by change_type='updated')`);
 
     // Map history rows to expected object structure
     return rows.map(row => {

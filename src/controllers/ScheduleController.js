@@ -9,11 +9,19 @@ export class ScheduleController {
     const result = ScheduleService.getScheduleByDate(date);
 
     if (!result) {
-      const error = ResponseFormatter.notFound(req.t('errors.scheduleNotFound', { date }));
-      return res.status(error.statusCode).json(error.response);
+      // Замість 404 повертаємо валідну відповідь з інформацією
+      return res.json(ResponseFormatter.success({
+        date,
+        available: false,
+        message: req.t('errors.scheduleNotFound', { date }),
+        queues: []
+      }));
     }
 
-    res.json(ResponseFormatter.success(result));
+    res.json(ResponseFormatter.success({
+      ...result,
+      available: true
+    }));
   }
 
   static getScheduleByQueue(req, res) {
@@ -23,11 +31,20 @@ export class ScheduleController {
     const result = ScheduleService.getScheduleByQueue(queue, date);
 
     if (!result) {
-      const error = ResponseFormatter.notFound(req.t('errors.queueNotFound', { queue }));
-      return res.status(error.statusCode).json(error.response);
+      // Замість 404 повертаємо валідну відповідь з інформацією
+      return res.json(ResponseFormatter.success({
+        date,
+        queue,
+        available: false,
+        message: req.t('errors.queueNotFound', { queue }),
+        intervals: []
+      }));
     }
 
-    res.json(ResponseFormatter.success(result));
+    res.json(ResponseFormatter.success({
+      ...result,
+      available: true
+    }));
   }
 
   static getAllDates(req, res) {
@@ -69,11 +86,19 @@ export class ScheduleController {
     const result = ScheduleService.getMetadata(date);
 
     if (!result) {
-      const error = ResponseFormatter.notFound(req.t('errors.metadataNotFound', { date }));
-      return res.status(error.statusCode).json(error.response);
+      // Замість 404 повертаємо валідну відповідь з інформацією
+      return res.json(ResponseFormatter.success({
+        date,
+        available: false,
+        message: req.t('errors.metadataNotFound', { date }),
+        metadata: null
+      }));
     }
 
-    res.json(ResponseFormatter.success(result));
+    res.json(ResponseFormatter.success({
+      ...result,
+      available: true
+    }));
   }
 
   static getLatestScheduleByQueue(req, res) {

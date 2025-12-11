@@ -7,7 +7,8 @@ export function parseScheduleMessage(text) {
 
   // Знаходимо всі черги у тексті (можуть бути в одному рядку або в багатьох)
   // Формат: "1.1: 00:00 – 05:30, 09:00 – 16:00"
-  const queuePattern = /(\d\.\d)\s*:\s*([0-9:–\-\s,]+?)(?=\d\.\d\s*:|Перелік|Дізнатися|Також|З \d{2}:|$)/g;
+  // Змінено: додано крапку та інші розділювачі перед lookahead
+  const queuePattern = /(\d\.\d)\s*:\s*([0-9:–\-\s,]+?)\.?(?=\s*(?:\d\.\d\s*:|Перелік|Дізнатися|Також|З \d{2}:|$))/g;
   const matches = [...text.matchAll(queuePattern)];
 
   for (const match of matches) {

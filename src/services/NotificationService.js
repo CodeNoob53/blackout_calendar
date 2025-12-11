@@ -179,6 +179,7 @@ export class NotificationService {
 
         let sent = 0;
         let failed = 0;
+        const errors = [];
 
         for (const sub of subscriptions) {
             try {
@@ -192,11 +193,19 @@ export class NotificationService {
                 sent++;
             } catch (error) {
                 failed++;
+                const errorInfo = {
+                    subscriptionId: sub.id,
+                    endpoint: sub.endpoint.substring(0, 80) + '...',
+                    statusCode: error.statusCode,
+                    message: error.message,
+                    body: error.body
+                };
+                errors.push(errorInfo);
                 Logger.error('NotificationService', `Test notification failed for ${sub.id}`, error);
             }
         }
 
-        return { sent, failed };
+        return { sent, failed, errors };
     }
 
     /**
@@ -209,9 +218,12 @@ export class NotificationService {
         if (!this.initialized) return;
 
         // Фільтруємо підписників, які хочуть отримувати цей тип повідомлень
+        // ВАЖЛИВО: Загальні сповіщення НЕ надсилаються користувачам з вибраною чергою
+        // (вони отримають адресні сповіщення через notifyQueueSubscribers)
         const subscriptions = db.prepare(`
             SELECT * FROM push_subscriptions
             WHERE failure_count < 5
+            AND selected_queue IS NULL
             AND (
                 notification_types LIKE '%"all"%'
                 OR notification_types LIKE ?
