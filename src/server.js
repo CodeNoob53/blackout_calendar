@@ -9,8 +9,10 @@ import { orchestrator } from "./services/SyncEngine.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
 import updateRoutes from "./routes/updateRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
+import emergencyRoutes from "./routes/emergencyRoutes.js";
 import { NotificationService } from "./services/NotificationService.js";
 import { initScheduleNotificationService } from "./services/ScheduleNotificationService.js";
+import EmergencyBlackoutService from "./services/EmergencyBlackoutService.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import Logger from "./utils/logger.js";
@@ -25,6 +27,9 @@ const __dirname = dirname(__filename);
 
 // Ініціалізуємо базу даних
 initDatabase();
+
+// Ініціалізуємо таблицю для аварійних відключень
+EmergencyBlackoutService.initEmergencyBlackoutsTable();
 
 // Ініціалізуємо сервіс повідомлень
 NotificationService.init();
@@ -89,6 +94,7 @@ app.get("/", (req, res) => {
 app.use("/api/schedules", scheduleLimiter, scheduleRoutes);
 app.use("/api/updates", updatesLimiter, updateRoutes);
 app.use("/api/notifications", generalLimiter, notificationRoutes);
+app.use("/api/emergency", generalLimiter, emergencyRoutes);
 
 // Backwards compatibility routes (deprecated)
 app.get("/api/schedule/:date", (req, res) => {
@@ -145,9 +151,21 @@ class AutoUpdateService {
   async performUpdate(source = "scheduled") {
     Logger.cron(`Starting ${source} update...`);
     try {
+      // Синхронізуємо графіки
       Logger.info('Scheduler', 'Using SyncEngine orchestrator');
       const result = await orchestrator();
       Logger.info('Scheduler', `Synced ${result.synced} dates, skipped ${result.skipped}`);
+
+      // Сканємо аварійні відключення
+      try {
+        const emergencies = await EmergencyBlackoutService.scanForEmergencyBlackouts();
+        if (emergencies > 0) {
+          Logger.info('Scheduler', `Found ${emergencies} new emergency blackout(s)`);
+        }
+      } catch (emergencyError) {
+        Logger.error('Scheduler', 'Emergency scan failed (non-critical)', emergencyError);
+      }
+
       return result;
     } catch (error) {
       Logger.error('Scheduler', `${source} update failed`, error);
