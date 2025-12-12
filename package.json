@@ -29,6 +29,9 @@
   ],
   "author": "Oleksandr Fedotov",
   "license": "MIT",
+  "engines": {
+    "node": ">=25.2.1"
+  },
   "dependencies": {
     "axios": "^1.7.4",
     "better-sqlite3": "^12.5.0",
