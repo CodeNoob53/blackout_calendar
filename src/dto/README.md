@@ -8,7 +8,6 @@
 src/dto/
 ├── BaseDTO.js           # Базовий клас з валідацією
 ├── ScheduleDTO.js       # DTO для графіків відключень
-├── AddressDTO.js        # DTO для адрес
 ├── ResponseDTO.js       # DTO для API відповідей
 ├── index.js            # Централізований експорт
 └── README.md           # Документація
@@ -50,20 +49,6 @@ src/dto/
 
 #### 8. UpdatesListDTO
 Список оновлень: `{ hours: 24, count: 3, schedules: [...] }`
-
-### Address DTOs (4 класи)
-
-#### 1. AddressDTO
-Одна адреса: `{ id, full_address, street, house, queue }`
-
-#### 2. AddressSearchResultDTO
-Результати пошуку: `{ query, count, addresses: [...], total?, truncated?, error? }`
-
-#### 3. AddressListDTO
-Список адрес: `{ addresses: [...] }`
-
-#### 4. AddressStatisticsDTO
-Статистика: `{ total, unique_streets, with_queue, without_queue }`
 
 ### Response DTOs (5 класів)
 
@@ -162,25 +147,6 @@ export class ScheduleController {
     const successDTO = ResponseDTOFactory.success(result);
     res.json(successDTO.toObject());
   }
-}
-```
-
-### Валідація з деталями помилок
-
-```javascript
-import { AddressSearchResultDTO } from '../dto/index.js';
-
-const dto = new AddressSearchResultDTO({
-  query: 'вул',
-  count: 0,
-  addresses: [],
-  error: 'Мінімальна довжина запиту: 3 символи'
-});
-
-if (!dto.validate()) {
-  const errors = dto.getErrors();
-  console.log('Validation errors:', errors);
-  // [{ field: 'query', message: '...' }, ...]
 }
 ```
 

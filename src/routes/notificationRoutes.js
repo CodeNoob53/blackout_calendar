@@ -6,6 +6,36 @@ import process from 'process';
 
 const router = Router();
 
+const validateSubscriptionPayload = (req, res, next) => {
+    const { endpoint, keys } = req.body || {};
+    if (!endpoint || !keys || !keys.p256dh || !keys.auth) {
+        return res.status(400).json({
+            success: false,
+            message: 'Invalid subscription payload: endpoint and keys.p256dh/auth are required'
+        });
+    }
+    next();
+};
+
+const validateEndpointBody = (req, res, next) => {
+    const { endpoint } = req.body || {};
+    if (!endpoint) {
+        return res.status(400).json({ success: false, message: 'Endpoint is required' });
+    }
+    next();
+};
+
+const validateUpdateQueuePayload = (req, res, next) => {
+    const { endpoint, notificationTypes } = req.body || {};
+    if (!endpoint) {
+        return res.status(400).json({ success: false, message: 'Endpoint is required' });
+    }
+    if (notificationTypes !== undefined && !Array.isArray(notificationTypes)) {
+        return res.status(400).json({ success: false, message: 'notificationTypes must be an array if provided' });
+    }
+    next();
+};
+
 /**
  * @swagger
  * /api/notifications/vapid-key:
@@ -54,16 +84,19 @@ router.get('/vapid-key', (req, res) => {
  *       201:
  *         description: Subscribed successfully
  */
-router.post('/subscribe', asyncHandler(async (req, res) => {
+router.post('/subscribe', validateSubscriptionPayload, asyncHandler(async (req, res) => {
     const subscription = req.body;
     const userAgent = req.headers['user-agent'];
 
-    const success = NotificationService.saveSubscription(subscription, userAgent);
-
-    if (success) {
-        res.status(201).json({ success: true, message: 'Subscribed successfully' });
-    } else {
-        res.status(500).json({ success: false, message: 'Failed to save subscription' });
+    try {
+        const success = NotificationService.saveSubscription(subscription, userAgent);
+        if (success) {
+            res.status(201).json({ success: true, message: 'Subscribed successfully' });
+        } else {
+            res.status(500).json({ success: false, message: 'Failed to save subscription' });
+        }
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
     }
 }));
 
@@ -87,12 +120,8 @@ router.post('/subscribe', asyncHandler(async (req, res) => {
  *       200:
  *         description: Unsubscribed successfully
  */
-router.post('/unsubscribe', asyncHandler(async (req, res) => {
+router.post('/unsubscribe', validateEndpointBody, asyncHandler(async (req, res) => {
     const { endpoint } = req.body;
-
-    if (!endpoint) {
-        return res.status(400).json({ success: false, message: 'Endpoint is required' });
-    }
 
     const success = NotificationService.removeSubscription(endpoint);
 
@@ -131,12 +160,8 @@ router.post('/unsubscribe', asyncHandler(async (req, res) => {
  *       200:
  *         description: Queue updated successfully
  */
-router.post('/update-queue', asyncHandler(async (req, res) => {
+router.post('/update-queue', validateUpdateQueuePayload, asyncHandler(async (req, res) => {
     const { endpoint, queue, notificationTypes } = req.body;
-
-    if (!endpoint) {
-        return res.status(400).json({ success: false, message: 'Endpoint is required' });
-    }
 
     const success = NotificationService.updateUserQueue(endpoint, queue, notificationTypes);
 

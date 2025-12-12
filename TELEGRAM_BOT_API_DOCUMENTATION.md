@@ -9,7 +9,6 @@
 3. [API Endpoints](#api-endpoints)
    - [Розклади (Schedules)](#розклади-schedules)
    - [Оновлення (Updates)](#оновлення-updates)
-   - [Адреси (Addresses)](#адреси-addresses)
 4. [Приклади використання в боті](#приклади-використання-в-боті)
 5. [Сценарії для бота](#сценарії-для-бота)
 6. [Rate Limiting](#rate-limiting)
@@ -405,12 +404,10 @@ Push notifications про зміни в графіках
 
 ---
 
-### Адреси (Addresses)
 
 #### 10. Пошук адрес за вулицею
 
 ```http
-GET /api/addresses/search?q=вулиця
 ```
 
 **Query параметри:**
@@ -418,7 +415,6 @@ GET /api/addresses/search?q=вулиця
 
 **Приклад:**
 ```http
-GET /api/addresses/search?q=Соборний
 ```
 
 **Відповідь:**
@@ -427,7 +423,6 @@ GET /api/addresses/search?q=Соборний
   "success": true,
   "query": "Соборний",
   "count": 5,
-  "addresses": [
     {
       "id": 123,
       "full_address": "Запоріжжя, Соборний проспект, 1",
@@ -453,7 +448,6 @@ GET /api/addresses/search?q=Соборний
 #### 11. Пошук за точною адресою
 
 ```http
-GET /api/addresses/exact?address=повна адреса
 ```
 
 **Query параметри:**
@@ -461,7 +455,6 @@ GET /api/addresses/exact?address=повна адреса
 
 **Приклад:**
 ```http
-GET /api/addresses/exact?address=Запоріжжя, Соборний проспект, 1
 ```
 
 **Відповідь:**
@@ -538,7 +531,6 @@ async function handleFindCommand(ctx) {
   }
 
   try {
-    const res = await fetch(`http://localhost:3000/api/addresses/search?q=${encodeURIComponent(query)}`);
     const data = await res.json();
 
     if (data.count === 0) {
@@ -546,7 +538,6 @@ async function handleFindCommand(ctx) {
     }
 
     // Створюємо інлайн клавіатуру з результатами
-    const keyboard = data.addresses.map(addr => ([
       {
         text: `${addr.full_address} (Черга ${addr.queue})`,
         callback_data: `save_queue_${addr.queue}_${addr.id}`
@@ -650,7 +641,6 @@ async function handleMyQueueCommand(ctx) {
 | `/today` | Графік на сьогодні | `GET /api/schedules/latest` |
 | `/tomorrow` | Графік на завтра | `GET /api/schedules/:date` |
 | `/dates` | Список дат | `GET /api/schedules/dates` |
-| `/find [вулиця]` | Пошук адреси | `GET /api/addresses/search?q=` |
 | `/myqueue` | Мій графік | `GET /api/schedules/queues/:queue/latest` |
 | `/new` | Нові графіки | `GET /api/updates/new?hours=24` |
 | `/changes` | Зміни в графіках | `GET /api/updates/changed?hours=24` |
@@ -701,10 +691,8 @@ bot.on('inline_query', async (ctx) => {
 
   if (query.length < 3) return;
 
-  const res = await fetch(`http://localhost:3000/api/addresses/search?q=${query}`);
   const data = await res.json();
 
-  const results = data.addresses.map((addr, index) => ({
     type: 'article',
     id: String(index),
     title: addr.full_address,
@@ -745,7 +733,6 @@ bot.on('inline_query', async (ctx) => {
 |----------|-------|
 | `/api/schedules/*` | 30 запитів / 15 хвилин |
 | `/api/updates/*` | 20 запитів / 15 хвилин |
-| `/api/addresses/*` | 15 запитів / 15 хвилин |
 | Загальний | 100 запитів / 15 хвилин |
 
 ### Рекомендації для бота
@@ -1129,13 +1116,9 @@ class BlackoutAPI {
     return this.request(`/updates/changed?hours=${hours}`);
   }
 
-  // Addresses
-  async searchAddresses(query) {
-    return this.request(`/addresses/search?q=${encodeURIComponent(query)}`);
   }
 
   async findExactAddress(address) {
-    return this.request(`/addresses/exact?address=${encodeURIComponent(address)}`);
   }
 }
 

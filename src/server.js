@@ -10,7 +10,6 @@ import { updateFromZoe } from "./scraper/zoeScraper.js";
 import { orchestrator } from "./services/SyncEngine.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
 import updateRoutes from "./routes/updateRoutes.js";
-import addressRoutes from "./routes/addressRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import { NotificationService } from "./services/NotificationService.js";
 import { initScheduleNotificationService } from "./services/ScheduleNotificationService.js";
@@ -20,7 +19,7 @@ import Logger from "./utils/logger.js";
 import cache from "./utils/cache.js";
 import swaggerUi from "swagger-ui-express";
 import { specs } from "./config/swagger.js";
-import { generalLimiter, searchLimiter, scheduleLimiter, updatesLimiter } from "./middleware/rateLimiter.js";
+import { generalLimiter, scheduleLimiter, updatesLimiter } from "./middleware/rateLimiter.js";
 import { i18nMiddleware, getAvailableLocales } from "./i18n/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -75,16 +74,11 @@ app.get("/", (req, res) => {
       updates: {
         "GET /api/updates/new": req.t('api.endpoints.updates.new'),
         "GET /api/updates/changed": req.t('api.endpoints.updates.changed')
-      },
-      addresses: {
-        "GET /api/addresses/search?q=query": req.t('api.endpoints.addresses.search'),
-        "GET /api/addresses/exact?address=full": req.t('api.endpoints.addresses.exact')
       }
     },
     rateLimits: {
       "/api/schedules": req.t('api.rateLimits.schedules'),
       "/api/updates": req.t('api.rateLimits.updates'),
-      "/api/addresses": req.t('api.rateLimits.addresses'),
       "general": req.t('api.rateLimits.general')
     },
     changes: {
@@ -96,7 +90,6 @@ app.get("/", (req, res) => {
 // API Routes з специфічними rate limiters
 app.use("/api/schedules", scheduleLimiter, scheduleRoutes);
 app.use("/api/updates", updatesLimiter, updateRoutes);
-app.use("/api/addresses", searchLimiter, addressRoutes);
 app.use("/api/notifications", generalLimiter, notificationRoutes);
 
 // Backwards compatibility routes (deprecated)

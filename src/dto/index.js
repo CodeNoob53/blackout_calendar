@@ -18,14 +18,6 @@ export {
   UpdatesListDTO
 } from './ScheduleDTO.js';
 
-// Address DTOs
-export {
-  AddressDTO,
-  AddressSearchResultDTO,
-  AddressListDTO,
-  AddressStatisticsDTO
-} from './AddressDTO.js';
-
 // Response DTOs
 export {
   SuccessResponseDTO,

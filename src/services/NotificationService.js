@@ -217,9 +217,6 @@ export class NotificationService {
     static async notifyScheduleChange(scheduleData, changeType, notificationType = 'schedule_change') {
         if (!this.initialized) return;
 
-        // Фільтруємо підписників, які хочуть отримувати цей тип повідомлень
-        // ВАЖЛИВО: Загальні сповіщення НЕ надсилаються користувачам з вибраною чергою
-        // (вони отримають адресні сповіщення через notifyQueueSubscribers)
         const subscriptions = db.prepare(`
             SELECT * FROM push_subscriptions
             WHERE failure_count < 5
@@ -229,11 +226,6 @@ export class NotificationService {
                 OR notification_types LIKE ?
             )
         `).all(`%"${notificationType}"%`);
-
-        if (subscriptions.length === 0) {
-            Logger.debug('NotificationService', `No subscribers for ${notificationType}`);
-            return;
-        }
 
         const payload = JSON.stringify({
             title: changeType === 'new' ? 'Новий графік відключень!' : 'Графік оновлено!',
@@ -246,33 +238,7 @@ export class NotificationService {
             }
         });
 
-        Logger.info('NotificationService', `Sending ${notificationType} to ${subscriptions.length} subscribers...`);
-
-        const promises = subscriptions.map(async (sub) => {
-            const pushSubscription = {
-                endpoint: sub.endpoint,
-                keys: {
-                    p256dh: sub.keys_p256dh,
-                    auth: sub.keys_auth
-                }
-            };
-
-            try {
-                await webpush.sendNotification(pushSubscription, payload);
-                db.prepare('UPDATE push_subscriptions SET last_active = CURRENT_TIMESTAMP, failure_count = 0 WHERE id = ?').run(sub.id);
-            } catch (error) {
-                if (error.statusCode === 410 || error.statusCode === 404) {
-                    db.prepare('DELETE FROM push_subscriptions WHERE id = ?').run(sub.id);
-                    Logger.debug('NotificationService', `Removed invalid subscription ${sub.id}`);
-                } else {
-                    db.prepare('UPDATE push_subscriptions SET failure_count = failure_count + 1 WHERE id = ?').run(sub.id);
-                    Logger.error('NotificationService', `Failed to send to ${sub.id}`, error);
-                }
-            }
-        });
-
-        await Promise.allSettled(promises);
-        Logger.info('NotificationService', 'Notification blast completed');
+        await this.sendNotifications(subscriptions, () => payload, notificationType);
     }
 
     /**
@@ -294,12 +260,7 @@ export class NotificationService {
             )
         `).all(queue, `%"${notificationType}"%`);
 
-        if (subscriptions.length === 0) {
-            Logger.debug('NotificationService', `No subscribers for queue ${queue}, type ${notificationType}`);
-            return;
-        }
-
-        const payload = JSON.stringify({
+        const payloadBuilder = () => JSON.stringify({
             title: data.title,
             body: data.body,
             icon: '/icon-192x192.png',
@@ -310,27 +271,46 @@ export class NotificationService {
             }
         });
 
-        Logger.info('NotificationService', `Sending ${notificationType} to ${subscriptions.length} subscribers (queue ${queue})`);
+        await this.sendNotifications(subscriptions, payloadBuilder, `${notificationType} (queue ${queue})`);
+    }
 
-        const promises = subscriptions.map(async (sub) => {
+    // Shared sender to keep delivery logic consistent
+    static async sendNotifications(subscriptions, payloadFactory, contextLabel) {
+        if (!subscriptions || subscriptions.length === 0) {
+            Logger.debug('NotificationService', `No subscribers for ${contextLabel || 'notification'}`);
+            return;
+        }
+
+        Logger.info('NotificationService', `Sending ${contextLabel || 'notifications'} to ${subscriptions.length} subscribers...`);
+
+        const updateSuccessStmt = db.prepare('UPDATE push_subscriptions SET last_active = CURRENT_TIMESTAMP, failure_count = 0 WHERE id = ?');
+        const incrementFailureStmt = db.prepare('UPDATE push_subscriptions SET failure_count = failure_count + 1 WHERE id = ?');
+        const deleteStmt = db.prepare('DELETE FROM push_subscriptions WHERE id = ?');
+
+        const tasks = subscriptions.map(async (sub) => {
+            const payload = payloadFactory(sub);
+            const pushSubscription = {
+                endpoint: sub.endpoint,
+                keys: {
+                    p256dh: sub.keys_p256dh,
+                    auth: sub.keys_auth
+                }
+            };
+
             try {
-                await webpush.sendNotification({
-                    endpoint: sub.endpoint,
-                    keys: {
-                        p256dh: sub.keys_p256dh,
-                        auth: sub.keys_auth
-                    }
-                }, payload);
-                db.prepare('UPDATE push_subscriptions SET last_active = CURRENT_TIMESTAMP, failure_count = 0 WHERE id = ?').run(sub.id);
+                await webpush.sendNotification(pushSubscription, payload);
+                updateSuccessStmt.run(sub.id);
             } catch (error) {
                 if (error.statusCode === 410 || error.statusCode === 404) {
-                    db.prepare('DELETE FROM push_subscriptions WHERE id = ?').run(sub.id);
+                    deleteStmt.run(sub.id);
+                    Logger.debug('NotificationService', `Removed invalid subscription ${sub.id}`);
                 } else {
-                    db.prepare('UPDATE push_subscriptions SET failure_count = failure_count + 1 WHERE id = ?').run(sub.id);
+                    incrementFailureStmt.run(sub.id);
+                    Logger.error('NotificationService', `Failed to send to ${sub.id}`, error);
                 }
             }
         });
 
-        await Promise.allSettled(promises);
+        await Promise.allSettled(tasks);
     }
 }

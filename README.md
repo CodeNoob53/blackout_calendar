@@ -185,29 +185,6 @@ GET /api/schedules/dates?limit=10&offset=0
 }
 ```
 
-### Пошук адрес з пагінацією
-```bash
-GET /api/addresses/search?q=Перемоги&limit=20&offset=0
-```
-
-Відповідь:
-```json
-{
-  "success": true,
-  "data": {
-    "query": "Перемоги",
-    "count": 20,
-    "total": 45,
-    "addresses": [...],
-    "pagination": {
-      "limit": 20,
-      "offset": 0,
-      "hasMore": true
-    }
-  }
-}
-```
-
 ## 🚢 Деплой на Production
 
 ### Render.com (рекомендовано)

@@ -10,18 +10,13 @@ export default {
 
   errors: {
     tooManyRequests: 'Занадто багато запитів. Спробуйте пізніше.',
-    tooManyRequestsSearch: 'Занадто багато запитів пошуку. Спробуйте через 5 хвилин.',
     tooManyRequestsUpdates: 'Занадто багато запитів до updates. Спробуйте пізніше.',
     invalidDateFormat: 'Невірний формат дати. Використовуйте YYYY-MM-DD',
     invalidQueueFormat: 'Невірний формат черги. Використовуйте X.X',
     scheduleNotFound: 'Графік на {{date}} не знайдено',
     queueNotFound: 'Графік для черги {{queue}} не знайдено',
     metadataNotFound: 'Метадані для {{date}} не знайдено',
-    addressNotFound: 'Адресу "{{address}}" не знайдено в базі',
     noSchedulesAvailable: 'Немає доступних графіків',
-    queryRequired: 'Параметр "q" обов\'язковий',
-    queryTooShort: 'Пошуковий запит має містити мінімум 3 символи',
-    addressRequired: 'Параметр "address" обов\'язковий',
     limitInvalid: 'Limit має бути від 1 до 100',
     hoursInvalid: 'Hours має бути від 1 до 720',
   },
@@ -45,16 +40,11 @@ export default {
         new: 'Нові графіки за останні N годин (?hours=24)',
         changed: 'Змінені графіки за останні N годин (?hours=24)',
       },
-      addresses: {
-        search: 'Пошук адрес за вулицею (мінімум 3 символи)',
-        exact: 'Пошук за точною адресою',
-      },
     },
 
     rateLimits: {
       schedules: '200 запитів / 15 хвилин',
       updates: '60 запитів / 15 хвилин',
-      addresses: '30 запитів / 5 хвилин',
       general: '100 запитів / 15 хвилин (для всього API)',
     },
 

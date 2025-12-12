@@ -52,15 +52,6 @@ export function initDatabase() {
       change_type TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS addresses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      street TEXT NOT NULL,
-      house TEXT NOT NULL,
-      full_address TEXT NOT NULL UNIQUE,
-      queue TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
     -- Базові індекси для outages
     CREATE INDEX IF NOT EXISTS idx_date ON outages(date);
     CREATE INDEX IF NOT EXISTS idx_queue ON outages(queue);
@@ -76,12 +67,6 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_metadata_updated ON schedule_metadata(last_updated_at);
     CREATE INDEX IF NOT EXISTS idx_metadata_date_updated ON schedule_metadata(date, last_updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_metadata_source ON schedule_metadata(source);
-
-    -- Індекси для addresses
-    CREATE INDEX IF NOT EXISTS idx_addresses_street ON addresses(street);
-    CREATE INDEX IF NOT EXISTS idx_addresses_queue ON addresses(queue);
-    CREATE INDEX IF NOT EXISTS idx_addresses_full_address ON addresses(full_address);
-    CREATE INDEX IF NOT EXISTS idx_addresses_street_queue ON addresses(street, queue);
   `);
 
   Logger.db(`Initialized at ${dbPath}`);
