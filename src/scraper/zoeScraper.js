@@ -1,17 +1,9 @@
 import * as cheerio from "cheerio";
 import axios from "axios";
 import { parseScheduleMessage } from "./parser.js";
-import { ScheduleRepository } from "../repositories/ScheduleRepository.js";
-import { ZoeRepository } from "../repositories/ZoeRepository.js";
 import config from "../config/index.js";
-import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
 import Logger from "../utils/logger.js";
 import https from "https";
-import {
-  generateScheduleHash,
-  generateZoeVersionId
-} from "../utils/versionHelper.js";
-import { ScheduleProcessor } from "../services/ScheduleProcessor.js";
 
 const ZOE_URL = "https://www.zoe.com.ua/%D0%B3%D1%80%D0%B0%D1%84%D1%96%D0%BA%D0%B8-%D0%BF%D0%BE%D0%B3%D0%BE%D0%B4%D0%B8%D0%BD%D0%BD%D0%B8%D1%85-%D1%81%D1%82%D0%B0%D0%B1%D1%96%D0%BB%D1%96%D0%B7%D0%B0%D1%86%D1%96%D0%B9%D0%BD%D0%B8%D1%85/";
 
@@ -92,7 +84,10 @@ export async function fetchZoeUpdates() {
       delete agent.options.checkServerIdentity;
     }
 
-    const response = await axios.get(ZOE_URL, {
+    // Додаємо таймстемп, щоб обходити кеш на проміжних проксі (Cloudflare/бразуерні кеші)
+    const requestUrl = `${ZOE_URL}?_=${Date.now()}`;
+
+    const response = await axios.get(requestUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
@@ -193,6 +188,7 @@ export function parseZoeHTML(html) {
   const $ = cheerio.load(html);
   const schedules = [];
   const dateUpdateTimes = new Map(); // Зберігаємо час оновлення для кожної дати
+  const seenContent = new Set(); // Дедуплікація контенту
   let positionIndex = 0; // Лічильник позиції на сторінці
 
   try {
@@ -231,16 +227,41 @@ export function parseZoeHTML(html) {
 
       let content = headerText;
 
-      // Збираємо весь текст до наступного заголовка
-      let $next = $header.next();
-      while ($next.length && !$next.is('h1, h2, h3, h4, h5, h6, strong, b')) {
-        content += '\n' + $next.text();
-        $next = $next.next();
+      // Піднімаємось до контейнера (p, div і т.д.)
+      let $container = $header.parent();
+      while ($container.length && !$container.is('p, div, article, section, li')) {
+        $container = $container.parent();
       }
 
-      // Також перевіряємо батьківський елемент, якщо заголовок всередині p або div
-      if ($header.parent().is('p, div') && $header.parent().text().length > $header.text().length + 50) {
-        content += '\n' + $header.parent().text();
+      // Збираємо весь текст з контейнера та наступних елементів до наступного заголовка
+      if ($container.length) {
+        // Додаємо текст самого контейнера
+        content += '\n' + $container.text();
+
+        // Збираємо наступні елементи (до 10 елементів або до наступного заголовка)
+        let $next = $container.next();
+        let count = 0;
+        while ($next.length && count < 10) {
+          // Перевіряємо чи не є це новим заголовком
+          const nextText = $next.text();
+          const hasNewHeader = $next.find('h1, h2, h3, h4, h5, h6, strong, b').filter((_, nextEl) => {
+            const t = $(nextEl).text().trim();
+            return (t.includes('ГПВ') || t.includes('графік')) && t.match(/\d{1,2}/);
+          }).length > 0;
+
+          if (hasNewHeader) {
+            break; // Зупиняємось якщо знайшли новий заголовок
+          }
+
+          content += '\n' + nextText;
+          $next = $next.next();
+          count++;
+
+          // Якщо знайшли черги, можемо зупинитись раніше
+          if (nextText.match(/\d\.\d\s*:/) && count >= 3) {
+            break;
+          }
+        }
       }
 
       // Очищаємо текст від зайвих пробілів
@@ -253,6 +274,15 @@ export function parseZoeHTML(html) {
         // extractDate має це обробляти, але про всяк випадок
 
         if (parsed.date && parsed.queues.length > 0) {
+          // Створюємо хеш контенту для дедуплікації (дата + черги)
+          const contentHash = `${parsed.date}:${JSON.stringify(parsed.queues)}`;
+
+          // Пропускаємо якщо вже бачили такий самий контент
+          if (seenContent.has(contentHash)) {
+            return; // Пропускаємо цей заголовок
+          }
+          seenContent.add(contentHash);
+
           // Визначаємо messageDate: спочатку з поточного заголовка, якщо немає - з dateUpdateTimes
           let finalUpdateTime = updateTime;
           if (!finalUpdateTime && dateUpdateTimes.has(parsed.date)) {
@@ -301,172 +331,4 @@ export function parseZoeHTML(html) {
   return schedules;
 }
 
-/**
- * Валідація розпарсеного графіка
- * Перевіряє чи дані виглядають адекватно
- */
-function validateSchedule(parsed) {
-  if (!parsed.date || !parsed.queues || parsed.queues.length === 0) {
-    return { valid: false, reason: 'Missing date or queues' };
-  }
-
-  // Перевіряємо формат дати
-  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-  if (!dateRegex.test(parsed.date)) {
-    return { valid: false, reason: 'Invalid date format' };
-  }
-
-  // Перевіряємо чи дата не в минулому (лайнографік)
-  // Дозволяємо тільки сьогодні та майбутні дати
-  const scheduleDate = new Date(parsed.date);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const daysDiff = (scheduleDate - today) / (1000 * 60 * 60 * 24);
-
-  if (daysDiff < 0) {
-    return { valid: false, reason: 'Lineograph - date in the past' };
-  }
-
-  // Перевіряємо чи є хоча б одна черга з інтервалами
-  let totalIntervals = 0;
-  for (const queue of parsed.queues) {
-    if (!queue.queue || !queue.intervals || queue.intervals.length === 0) {
-      return { valid: false, reason: 'Queue missing intervals' };
-    }
-
-    // Перевіряємо формат черги
-    if (!/^\d\.\d$/.test(queue.queue)) {
-      return { valid: false, reason: `Invalid queue format: ${queue.queue}` };
-    }
-
-    // Перевіряємо інтервали
-    for (const interval of queue.intervals) {
-      if (!interval.start || !interval.end) {
-        return { valid: false, reason: 'Interval missing start or end' };
-      }
-
-      // Перевіряємо формат часу
-      const timeRegex = /^\d{2}:\d{2}$/;
-      if (!timeRegex.test(interval.start) || !timeRegex.test(interval.end)) {
-        return { valid: false, reason: 'Invalid time format' };
-      }
-
-      totalIntervals++;
-    }
-  }
-
-  // Перевіряємо чи не занадто багато інтервалів (може бути помилка парсингу)
-  if (totalIntervals > 50) {
-    return { valid: false, reason: `Too many intervals: ${totalIntervals}` };
-  }
-
-  // Перевіряємо чи не занадто мало інтервалів (може бути неповний графік)
-  if (totalIntervals === 0) {
-    return { valid: false, reason: 'No intervals found' };
-  }
-
-  return { valid: true };
-}
-
-/**
- * Оновити дані з zoe.com.ua
- * Використовується як додаткове джерело, Telegram має пріоритет
- *
- * НОВА ЛОГІКА ВЕРСІОНУВАННЯ:
- * 1. Зберігаємо raw HTML як snapshot
- * 2. Для кожного графіка генеруємо хеш контенту
- * 3. Якщо хеш змінився - створюємо нову версію
- * 4. Version ID формату: zoe-2025-12-05-v001, zoe-2025-12-05-v002...
- */
-export async function updateFromZoe() {
-  Logger.info('ZoeScraper', 'Fetching updates from zoe.com.ua...');
-
-  const html = await fetchZoeUpdates();
-  if (!html) {
-    // Не логуємо як помилку, бо це може бути тимчасовий збій
-    Logger.debug('ZoeScraper', 'No HTML received, skipping zoe update');
-    return {
-      total: 0,
-      updated: 0,
-      skipped: 0,
-      invalid: 0,
-      newSchedules: [],
-      updatedSchedules: []
-    };
-  }
-
-  // Крок 1: Зберігаємо raw HTML snapshot
-  const parsedSchedules = parseZoeHTML(html);
-  const snapshotId = ZoeRepository.saveSnapshot(html, parsedSchedules);
-  Logger.debug('ZoeScraper', `Saved snapshot #${snapshotId}`);
-
-  Logger.info('ZoeScraper', `Found ${parsedSchedules.length} potential schedules`);
-
-  let updated = 0;
-  let skipped = 0;
-  let invalid = 0;
-  const newSchedules = [];
-  const updatedSchedules = [];
-
-  for (const { parsed, source, messageDate, rawText, pagePosition } of parsedSchedules) {
-    // Валідуємо графік
-    const validation = validateSchedule(parsed);
-
-    if (!validation.valid) {
-      Logger.debug('ZoeScraper', `Skipped invalid schedule for ${parsed.date}: ${validation.reason}`);
-      invalid++;
-      continue;
-    }
-
-    // Використовуємо ScheduleProcessor для обробки
-    const result = await ScheduleProcessor.process({
-      parsed,
-      scheduleDate: parsed.date,
-      messageDate,
-      rawContent: rawText,
-      metadata: {
-        snapshotId,
-        pagePosition
-      }
-    }, ZoeRepository, 'zoe');
-
-    if (result.result === 'processed') {
-      updated++;
-      if (result.changeType === 'new') {
-        newSchedules.push({
-          date: parsed.date,
-          messageDate: result.messageDate,
-          versionId: result.versionId,
-          source: 'zoe'
-        });
-      } else {
-        updatedSchedules.push({
-          date: parsed.date,
-          messageDate: result.messageDate,
-          versionId: result.versionId,
-          source: 'zoe'
-        });
-      }
-    } else {
-      skipped++;
-    }
-  }
-
-  // Інвалідуємо кеш після оновлення даних
-  if (updated > 0) {
-    invalidateScheduleCaches();
-  }
-
-  Logger.info('ZoeScraper', `Processed: ${parsedSchedules.length} total, ${updated} updated, ${skipped} skipped (unchanged), ${invalid} invalid`);
-
-  return {
-    total: parsedSchedules.length,
-    updated,
-    skipped,
-    invalid,
-    newSchedules,
-    updatedSchedules,
-    snapshotId
-  };
-}
-
+// Legacy update function removed in favor of SyncEngine orchestrator

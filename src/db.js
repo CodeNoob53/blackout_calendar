@@ -102,44 +102,6 @@ export function initDatabase() {
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   const tableNames = tables.map(t => t.name);
 
-  if (!tableNames.includes('zoe_snapshots')) {
-    db.exec(`
-      CREATE TABLE zoe_snapshots (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        fetch_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        raw_html TEXT NOT NULL,
-        parsed_json TEXT,
-        processing_status TEXT DEFAULT 'pending',
-        processing_error TEXT
-      );
-
-      CREATE INDEX idx_zoe_snapshots_fetch ON zoe_snapshots(fetch_timestamp DESC);
-      CREATE INDEX idx_zoe_snapshots_status ON zoe_snapshots(processing_status);
-    `);
-    Logger.success('Database', 'Migration: Created zoe_snapshots table');
-  }
-
-  if (!tableNames.includes('telegram_snapshots')) {
-    db.exec(`
-      CREATE TABLE telegram_snapshots (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        post_id INTEGER NOT NULL UNIQUE,
-        message_date DATETIME NOT NULL,
-        fetch_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        raw_text TEXT NOT NULL,
-        raw_html TEXT,
-        parsed_json TEXT,
-        processing_status TEXT DEFAULT 'pending',
-        processing_error TEXT
-      );
-
-      CREATE INDEX idx_tg_snapshots_post ON telegram_snapshots(post_id);
-      CREATE INDEX idx_tg_snapshots_msg ON telegram_snapshots(message_date DESC);
-      CREATE INDEX idx_tg_snapshots_status ON telegram_snapshots(processing_status);
-    `);
-    Logger.success('Database', 'Migration: Created telegram_snapshots table');
-  }
-
   if (!tableNames.includes('push_subscriptions')) {
     db.exec(`
       CREATE TABLE push_subscriptions (
@@ -155,66 +117,6 @@ export function initDatabase() {
       );
     `);
     Logger.success('Database', 'Migration: Created push_subscriptions table');
-  }
-
-  if (!tableNames.includes('zoe_schedule_versions')) {
-    db.exec(`
-      CREATE TABLE zoe_schedule_versions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        version_id TEXT NOT NULL UNIQUE,
-        schedule_date TEXT NOT NULL,
-        version_number INTEGER NOT NULL,
-        detected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        site_update_time TEXT,
-        content_hash TEXT NOT NULL,
-        schedule_data TEXT NOT NULL,
-        snapshot_id INTEGER NOT NULL,
-        change_type TEXT NOT NULL,
-        FOREIGN KEY (snapshot_id) REFERENCES zoe_snapshots(id),
-        UNIQUE(schedule_date, version_number)
-      );
-
-      CREATE INDEX idx_zoe_versions_date ON zoe_schedule_versions(schedule_date, version_number DESC);
-      CREATE INDEX idx_zoe_versions_detected ON zoe_schedule_versions(detected_at DESC);
-      CREATE INDEX idx_zoe_versions_hash ON zoe_schedule_versions(content_hash);
-      CREATE INDEX idx_zoe_versions_version_id ON zoe_schedule_versions(version_id);
-    `);
-    Logger.success('Database', 'Migration: Created zoe_schedule_versions table');
-  }
-
-  if (!tableNames.includes('telegram_schedule_versions')) {
-    db.exec(`
-      CREATE TABLE telegram_schedule_versions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        version_id TEXT NOT NULL UNIQUE,
-        schedule_date TEXT NOT NULL,
-        post_id INTEGER NOT NULL,
-        message_date DATETIME NOT NULL,
-        detected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        content_hash TEXT NOT NULL,
-        schedule_data TEXT NOT NULL,
-        snapshot_id INTEGER NOT NULL,
-        change_type TEXT NOT NULL,
-        FOREIGN KEY (snapshot_id) REFERENCES telegram_snapshots(id),
-        UNIQUE(post_id)
-      );
-
-      CREATE INDEX idx_tg_versions_date ON telegram_schedule_versions(schedule_date, post_id DESC);
-      CREATE INDEX idx_tg_versions_detected ON telegram_schedule_versions(detected_at DESC);
-      CREATE INDEX idx_tg_versions_post ON telegram_schedule_versions(post_id);
-      CREATE INDEX idx_tg_versions_hash ON telegram_schedule_versions(content_hash);
-      CREATE INDEX idx_tg_versions_version_id ON telegram_schedule_versions(version_id);
-    `);
-    Logger.success('Database', 'Migration: Created telegram_schedule_versions table');
-  }
-
-  // PHASE 1 MIGRATION: Додаємо page_position для Zoe версій
-  const zoeVersionsInfo = db.prepare("PRAGMA table_info(zoe_schedule_versions)").all();
-  const hasPagePosition = zoeVersionsInfo.some(col => col.name === 'page_position');
-
-  if (!hasPagePosition) {
-    db.exec(`ALTER TABLE zoe_schedule_versions ADD COLUMN page_position INTEGER`);
-    Logger.success('Database', 'Migration: Added page_position to zoe_schedule_versions');
   }
 
   // MIGRATION: Розширення push_subscriptions для персоналізованих сповіщень

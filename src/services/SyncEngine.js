@@ -185,13 +185,15 @@ async function fetchAllZoeUpdates() {
   const parsedSchedules = parseZoeHTML(html);
 
   // Конвертуємо в формат апдейтів
-  const updates = parsedSchedules.map(schedule => {
-    // Генеруємо стабільний sourceId на основі дати (YYYYMMDD)
-    // Наприклад: 2025-12-04 -> 20251204
+  const updates = parsedSchedules.map((schedule, index) => {
+    // Генеруємо унікальний sourceId на основі pagePosition або індексу
+    // Наприклад: 20251204001 (дата + позиція на сторінці)
     const dateId = parseInt(schedule.parsed.date.replace(/-/g, ''), 10);
+    const position = schedule.pagePosition ?? index;
+    const sourceId = dateId * 1000 + position; // Комбінація дати та позиції
 
     return {
-      sourceId: dateId, // Стабільний ID на основі дати
+      sourceId: sourceId, // Унікальний ID для кожного оновлення
       source: 'zoe',
       messageDate: schedule.messageDate || null, // Час оновлення з заголовка "(оновлено о XX:XX)"
       parsed: schedule.parsed
@@ -199,6 +201,8 @@ async function fetchAllZoeUpdates() {
   });
 
   Logger.info('SyncEngine', `Fetched ${updates.length} Zoe updates`);
+  const uniqDates = [...new Set(updates.map(u => u.parsed?.date).filter(Boolean))].sort();
+  Logger.info('SyncEngine', `Zoe parsed dates: ${uniqDates.join(', ')}`);
   return updates;
 }
 

@@ -23,9 +23,7 @@ export const config = {
   // Auto-update Configuration
   autoUpdate: {
     enabled: process.env.AUTO_UPDATE !== 'false',
-    interval: process.env.UPDATE_INTERVAL || '*/5 * * * *', // Кожні 5 хвилин
-    enableZoe: process.env.ENABLE_ZOE_SCRAPER !== 'false', // Увімкнути парсинг zoe.com.ua
-    useSyncEngine: process.env.USE_SYNC_ENGINE === 'true' // Використовувати SyncEngine для об'єднання даних
+    interval: process.env.UPDATE_INTERVAL || '*/5 * * * *' // Кожні 5 хвилин
   },
 
   // Telegram Configuration

@@ -1,6 +1,6 @@
-import { updateFromTelegram } from "./scraper/telegramScraper.js";
+import { orchestrator } from "./services/SyncEngine.js";
 
-console.log("⏳ CRON: Updating outages…");
-await updateFromTelegram();
+console.log("⏳ CRON: Syncing outages via SyncEngine…");
+await orchestrator();
 console.log("✅ Done.");
 process.exit(0);

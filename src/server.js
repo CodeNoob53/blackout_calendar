@@ -5,8 +5,6 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import config from "./config/index.js";
 import { initDatabase, db } from "./db.js";
-import { updateFromTelegram } from "./scraper/telegramScraper.js";
-import { updateFromZoe } from "./scraper/zoeScraper.js";
 import { orchestrator } from "./services/SyncEngine.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
 import updateRoutes from "./routes/updateRoutes.js";
@@ -147,33 +145,10 @@ class AutoUpdateService {
   async performUpdate(source = "scheduled") {
     Logger.cron(`Starting ${source} update...`);
     try {
-      // Якщо увімкнено SyncEngine - використовуємо orchestrator
-      if (config.autoUpdate.useSyncEngine) {
-        Logger.info('Scheduler', 'Using SyncEngine orchestrator');
-        const result = await orchestrator();
-        Logger.info('Scheduler', `Synced ${result.synced} dates, skipped ${result.skipped}`);
-        return result;
-      }
-
-      // Старий метод: окремі scraper'и
-      // Спочатку оновлюємо з Telegram (пріоритетне джерело)
-      const telegramResult = await updateFromTelegram();
-      Logger.updateSummary(telegramResult);
-
-      // Потім оновлюємо з zoe.com.ua (якщо увімкнено)
-      if (config.autoUpdate.enableZoe) {
-        try {
-          const zoeResult = await updateFromZoe();
-          if (zoeResult.updated > 0) {
-            Logger.info('Scheduler', `Zoe: ${zoeResult.updated} updated, ${zoeResult.skipped} skipped, ${zoeResult.invalid} invalid`);
-          }
-        } catch (zoeError) {
-          // Не зупиняємо процес якщо zoe не працює
-          Logger.warning('Scheduler', 'Zoe scraper failed (non-critical)', zoeError);
-        }
-      }
-
-      return telegramResult;
+      Logger.info('Scheduler', 'Using SyncEngine orchestrator');
+      const result = await orchestrator();
+      Logger.info('Scheduler', `Synced ${result.synced} dates, skipped ${result.skipped}`);
+      return result;
     } catch (error) {
       Logger.error('Scheduler', `${source} update failed`, error);
       throw error;
