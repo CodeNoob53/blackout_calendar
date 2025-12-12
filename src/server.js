@@ -197,6 +197,40 @@ class AutoUpdateService {
 
 const autoUpdate = new AutoUpdateService();
 
+// Keep-alive: Пінгуємо сервер кожні 14 хвилин, щоб не заснув на безкоштовному хостингу
+class KeepAliveService {
+  constructor() {
+    this.enabled = config.server.env === 'production';
+    this.interval = 14 * 60 * 1000; // 14 хвилин
+  }
+
+  start() {
+    if (!this.enabled) {
+      Logger.info('KeepAlive', 'Disabled in development mode');
+      return;
+    }
+
+    Logger.success('KeepAlive', `Self-ping enabled (every 14 minutes)`);
+
+    setInterval(async () => {
+      try {
+        const url = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+        const response = await fetch(`${url}/health`);
+
+        if (response.ok) {
+          Logger.debug('KeepAlive', `✓ Self-ping successful`);
+        } else {
+          Logger.warning('KeepAlive', `Self-ping returned ${response.status}`);
+        }
+      } catch (error) {
+        Logger.error('KeepAlive', `Self-ping failed: ${error.message}`);
+      }
+    }, this.interval);
+  }
+}
+
+const keepAlive = new KeepAliveService();
+
 const server = app.listen(PORT, () => {
   Logger.banner("Blackout Calendar API", "2.0.0", config.server.env);
   Logger.success('Server', `Running at http://localhost:${PORT}`);
@@ -204,6 +238,7 @@ const server = app.listen(PORT, () => {
   Logger.divider();
 
   autoUpdate.start();
+  keepAlive.start();
 });
 
 // Обробка помилок при запуску сервера
