@@ -20,7 +20,7 @@ import { rescheduleNotifications } from "./ScheduleNotificationService.js";
 /**
  * Фільтрує лайнографіки (графіки з датою меншою за сьогодні)
  */
-function filterLineographs(updates) {
+function filterLineographs(updates, skipDateFilter = false) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString().split('T')[0];
@@ -28,14 +28,16 @@ function filterLineographs(updates) {
   return updates.filter(update => {
     if (!update.parsed.date) return false;
 
-    // Фільтруємо графіки старші за 7 днів
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const minDateStr = sevenDaysAgo.toISOString().split('T')[0];
+    // Фільтруємо графіки старші за 7 днів (тільки для orchestrator, не для bootstrap)
+    if (!skipDateFilter) {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const minDateStr = sevenDaysAgo.toISOString().split('T')[0];
 
-    if (update.parsed.date < minDateStr) {
-      Logger.debug('SyncEngine', `Filtered old schedule: date=${update.parsed.date} (min=${minDateStr})`);
-      return false;
+      if (update.parsed.date < minDateStr) {
+        Logger.debug('SyncEngine', `Filtered old schedule: date=${update.parsed.date} (min=${minDateStr})`);
+        return false;
+      }
     }
 
     return true;
@@ -394,7 +396,7 @@ function writeSyncedData(date, timeline) {
 /**
  * Синхронізує апдейти для заданих дат
  */
-async function syncUpdates(telegramUpdates, zoeUpdates) {
+async function syncUpdates(telegramUpdates, zoeUpdates, skipDateFilter = false) {
   Logger.info('SyncEngine', 'Starting sync process...');
 
   // 1. Об'єднуємо всі апдейти
@@ -402,7 +404,7 @@ async function syncUpdates(telegramUpdates, zoeUpdates) {
   Logger.info('SyncEngine', `Total updates before filtering: ${allUpdates.length}`);
 
   // 2. Фільтруємо лайнографіки
-  const filtered = filterLineographs(allUpdates);
+  const filtered = filterLineographs(allUpdates, skipDateFilter);
   Logger.info('SyncEngine', `Updates after filtering: ${filtered.length} (removed ${allUpdates.length - filtered.length} lineographs)`);
 
   // 3. Групуємо по датах
@@ -469,8 +471,8 @@ export async function bootstrap() {
       fetchAllZoeUpdates()
     ]);
 
-    // 2. Синхронізуємо
-    const results = await syncUpdates(telegramUpdates, zoeUpdates);
+    // 2. Синхронізуємо (БЕЗ фільтрації по датах - завантажуємо ВСІ графіки)
+    const results = await syncUpdates(telegramUpdates, zoeUpdates, true);
 
     Logger.success('SyncEngine', `=== BOOTSTRAP COMPLETED ===`);
     Logger.info('SyncEngine', `Total dates: ${results.total}, Synced: ${results.synced}, Skipped: ${results.skipped}`);
