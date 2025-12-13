@@ -203,7 +203,7 @@ async function sendEmergencyNotification(emergencyId, emergencyData) {
   const title = '⚠️ Аварійні відключення';
   const body = `${dateFormatted} введено графіки аварійних відключень ${groupText}`;
 
-  Logger.info('EmergencyBlackoutService', `Sending notification: ${title} - ${body}`);
+  Logger.debug('EmergencyBlackoutService', `Sending notification: ${title} - ${body}`);
 
   try {
     // Відправляємо через NotificationService

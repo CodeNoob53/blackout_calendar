@@ -25,18 +25,6 @@ import { i18nMiddleware, getAvailableLocales } from "./i18n/index.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Ініціалізуємо базу даних
-initDatabase();
-
-// Ініціалізуємо таблицю для аварійних відключень
-EmergencyBlackoutService.initEmergencyBlackoutsTable();
-
-// Ініціалізуємо сервіс повідомлень
-NotificationService.init();
-
-// Ініціалізуємо сервіс автоматичних сповіщень про відключення/включення
-initScheduleNotificationService();
-
 const app = express();
 const PORT = config.server.port;
 
@@ -148,24 +136,13 @@ class AutoUpdateService {
     this.interval = config.autoUpdate.interval;
   }
 
-  async performUpdate(source = "scheduled") {
-    Logger.cron(`Starting ${source} update...`);
+  async performUpdate() {
     try {
-      // Перевіряємо чи база порожня (перший запуск)
-      const count = db.prepare('SELECT COUNT(*) as count FROM schedule_metadata').get();
-      const isEmpty = count.count === 0;
+      // Використовуємо orchestrator (останні 7 днів)
+      const result = await orchestrator();
 
-      let result;
-      if (isEmpty && source === "initial") {
-        // При першому запуску робимо повний bootstrap
-        Logger.info('Scheduler', 'Database is empty, running bootstrap (full sync)');
-        result = await bootstrap();
-        Logger.success('Scheduler', `Bootstrap completed: ${result.synced} dates synced`);
-      } else {
-        // При звичайних оновленнях використовуємо orchestrator (останні 7 днів)
-        Logger.info('Scheduler', 'Using SyncEngine orchestrator (last 7 days)');
-        result = await orchestrator();
-        Logger.info('Scheduler', `Synced ${result.synced} dates, skipped ${result.skipped}`);
+      if (result.synced > 0) {
+        Logger.info('Scheduler', `Synced ${result.synced} dates`);
       }
 
       // Сканємо аварійні відключення
@@ -180,7 +157,7 @@ class AutoUpdateService {
 
       return result;
     } catch (error) {
-      Logger.error('Scheduler', `${source} update failed`, error);
+      Logger.error('Scheduler', 'Update failed', error);
       throw error;
     }
   }
@@ -193,14 +170,9 @@ class AutoUpdateService {
 
     Logger.success('Scheduler', `Auto-update enabled (${this.interval})`);
 
-    // Запускаємо оновлення при старті (не блокуємо старт сервера)
-    this.performUpdate("initial").catch(err => {
-      Logger.error('Scheduler', 'Initial update failed (non-critical)', err);
-    });
-
     // Планове оновлення
     nodeCron.schedule(this.interval, () => {
-      this.performUpdate("scheduled").catch(err => {
+      this.performUpdate().catch(err => {
         Logger.error('Scheduler', 'Scheduled update failed (non-critical)', err);
       });
     });
@@ -244,13 +216,48 @@ class KeepAliveService {
 const keepAlive = new KeepAliveService();
 
 const server = app.listen(PORT, () => {
+  // 1. Банер сервера
   Logger.banner("Blackout Calendar API", "2.0.0", Logger.environment);
   Logger.success('Server', `Running at http://localhost:${PORT}`);
   Logger.info('Server', `API Documentation: http://localhost:${PORT}`);
   Logger.divider();
 
-  autoUpdate.start();
-  keepAlive.start();
+  // 2. Ініціалізація бази даних
+  Logger.info('Server', 'Initializing database...');
+  initDatabase();
+  EmergencyBlackoutService.initEmergencyBlackoutsTable();
+
+  // 3. Перевірка чи потрібен bootstrap
+  const count = db.prepare('SELECT COUNT(*) as count FROM schedule_metadata').get();
+  const isEmpty = count.count === 0;
+
+  if (isEmpty) {
+    Logger.info('Server', 'Database is empty, running bootstrap...');
+    bootstrap().then(result => {
+      Logger.success('Server', `Bootstrap completed: ${result.synced} dates synced`);
+
+      // 4. Ініціалізація сервісів сповіщень (після bootstrap)
+      NotificationService.init();
+      initScheduleNotificationService();
+
+      // 5. Запуск автооновлення та keep-alive
+      autoUpdate.start();
+      keepAlive.start();
+    }).catch(err => {
+      Logger.error('Server', 'Bootstrap failed', err);
+      process.exit(1);
+    });
+  } else {
+    Logger.info('Server', `Database has ${count.count} schedules`);
+
+    // 4. Ініціалізація сервісів сповіщень
+    NotificationService.init();
+    initScheduleNotificationService();
+
+    // 5. Запуск автооновлення та keep-alive
+    autoUpdate.start();
+    keepAlive.start();
+  }
 });
 
 // Обробка помилок при запуску сервера

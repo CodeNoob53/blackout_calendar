@@ -204,7 +204,7 @@ async function fetchAllZoeUpdates() {
 
   Logger.info('SyncEngine', `Fetched ${updates.length} Zoe updates`);
   const uniqDates = [...new Set(updates.map(u => u.parsed?.date).filter(Boolean))].sort();
-  Logger.info('SyncEngine', `Zoe parsed dates: ${uniqDates.join(', ')}`);
+  Logger.debug('SyncEngine', `Zoe parsed dates: ${uniqDates.join(', ')}`);
   return updates;
 }
 
@@ -280,7 +280,7 @@ function writeSyncedData(date, timeline) {
     }
   }
 
-  Logger.info('SyncEngine', `Writing synced data for ${date}: ${updateCount} updates, final from ${finalUpdate.source}`);
+  Logger.debug('SyncEngine', `Writing synced data for ${date}: ${updateCount} updates, final from ${finalUpdate.source}`);
 
   // changeType для метаданих та повідомлень
   const metadataChangeType = updateCount > 1 ? 'updated' : 'new';
@@ -383,7 +383,7 @@ function writeSyncedData(date, timeline) {
       metadataChangeType
     );
 
-    Logger.success('SyncEngine', `Synced ${date}: ${updateCount} updates, final=${finalUpdate.source}`);
+    Logger.info('SyncEngine', `Synced ${date}`);
   });
 
   transaction();
@@ -393,11 +393,18 @@ function writeSyncedData(date, timeline) {
     Logger.error('SyncEngine', 'Failed to send notification', err);
   });
 
-  // Перепланувати автоматичні сповіщення (power_off_30min, power_on)
-  try {
-    rescheduleNotifications(date);
-  } catch (err) {
-    Logger.error('SyncEngine', 'Failed to reschedule notifications', err);
+  // Перепланувати автоматичні сповіщення ТІЛЬКИ для сьогодні та завтра
+  const today = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+  if (date === today || date === tomorrowStr) {
+    try {
+      rescheduleNotifications(date);
+    } catch (err) {
+      Logger.error('SyncEngine', 'Failed to reschedule notifications', err);
+    }
   }
 
   return { updated: true, updateCount, changeType: metadataChangeType };
@@ -411,11 +418,11 @@ async function syncUpdates(telegramUpdates, zoeUpdates, skipDateFilter = false) 
 
   // 1. Об'єднуємо всі апдейти
   const allUpdates = [...telegramUpdates, ...zoeUpdates];
-  Logger.info('SyncEngine', `Total updates before filtering: ${allUpdates.length}`);
+  Logger.debug('SyncEngine', `Total updates before filtering: ${allUpdates.length}`);
 
   // 2. Фільтруємо лайнографіки
   const filtered = filterLineographs(allUpdates, skipDateFilter);
-  Logger.info('SyncEngine', `Updates after filtering: ${filtered.length} (removed ${allUpdates.length - filtered.length} lineographs)`);
+  Logger.debug('SyncEngine', `Updates after filtering: ${filtered.length} (removed ${allUpdates.length - filtered.length} lineographs)`);
 
   // 3. Групуємо по датах
   const grouped = groupByDate(filtered);
@@ -430,11 +437,11 @@ async function syncUpdates(telegramUpdates, zoeUpdates, skipDateFilter = false) 
   };
 
   for (const [date, updates] of grouped) {
-    Logger.info('SyncEngine', `Processing ${date}: ${updates.length} updates`);
+    Logger.debug('SyncEngine', `Processing ${date}: ${updates.length} updates`);
 
     // Будуємо timeline (фільтруємо дублікати, визначаємо пріоритети)
     const timeline = buildTimeline(updates);
-    Logger.info('SyncEngine', `Timeline for ${date}: ${timeline.length} unique updates (removed ${updates.length - timeline.length} duplicates)`);
+    Logger.debug('SyncEngine', `Timeline for ${date}: ${timeline.length} unique updates (removed ${updates.length - timeline.length} duplicates)`);
 
     if (timeline.length === 0) {
       results.skipped++;
@@ -516,7 +523,7 @@ export async function orchestrator() {
     const recentTelegram = telegramUpdates.filter(u => u.parsed.date >= sevenDaysAgoStr);
     const recentZoe = zoeUpdates.filter(u => u.parsed.date >= sevenDaysAgoStr);
 
-    Logger.info('SyncEngine', `Filtered to last 7 days: Telegram=${recentTelegram.length}, Zoe=${recentZoe.length}`);
+    Logger.debug('SyncEngine', `Filtered to last 7 days: Telegram=${recentTelegram.length}, Zoe=${recentZoe.length}`);
 
     // 3. Синхронізуємо
     const results = await syncUpdates(recentTelegram, recentZoe);
