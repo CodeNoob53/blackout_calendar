@@ -124,7 +124,7 @@ function scheduleWarningNotification(date, queue, startTime, endTime) {
 
   scheduledJobs.set(jobId, job);
 
-  Logger.info('ScheduleNotificationService', `Scheduled power_off_30min for queue ${queue} at ${warningTime.toLocaleTimeString('uk-UA')} (${date})`);
+  Logger.debug('ScheduleNotificationService', `Scheduled power_off_30min for queue ${queue} at ${warningTime.toLocaleTimeString('uk-UA')} (${date})`);
 
   return job;
 }
@@ -168,7 +168,7 @@ function schedulePowerOnNotification(date, queue, endTime) {
 
   scheduledJobs.set(jobId, job);
 
-  Logger.info('ScheduleNotificationService', `Scheduled power_on for queue ${queue} at ${powerOnTime.toLocaleTimeString('uk-UA')} (${date})`);
+  Logger.debug('ScheduleNotificationService', `Scheduled power_on for queue ${queue} at ${powerOnTime.toLocaleTimeString('uk-UA')} (${date})`);
 
   return job;
 }
