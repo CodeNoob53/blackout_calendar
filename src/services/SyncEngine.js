@@ -300,16 +300,26 @@ function writeSyncedData(date, timeline) {
 
     const now = new Date().toISOString();
 
+    // Дедуплікація: збираємо унікальні інтервали
+    const uniqueOutages = new Set();
+
     for (const q of finalUpdate.parsed.queues) {
       for (const interval of q.intervals) {
-        insertOutage.run(
-          date,
-          q.queue,
-          interval.start,
-          interval.end,
-          finalUpdate.sourceId,
-          now
-        );
+        const key = `${q.queue}|${interval.start}|${interval.end}`;
+
+        if (!uniqueOutages.has(key)) {
+          uniqueOutages.add(key);
+          insertOutage.run(
+            date,
+            q.queue,
+            interval.start,
+            interval.end,
+            finalUpdate.sourceId,
+            now
+          );
+        } else {
+          Logger.debug('SyncEngine', `Skipping duplicate outage: ${date} ${key}`);
+        }
       }
     }
 
