@@ -1,185 +1,90 @@
-// Не імпортуємо config тут, щоб уникнути циклічних залежностей
-// Використовуємо process.env напряму для logger
+import winston from "winston";
 
-class Logger {
-  static colors = {
-    reset: '\x1b[0m',
-    bright: '\x1b[1m',
-    dim: '\x1b[2m',
+const isDebug = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
 
-    // Foreground colors
-    black: '\x1b[30m',
-    red: '\x1b[31m',
-    green: '\x1b[32m',
-    yellow: '\x1b[33m',
-    blue: '\x1b[34m',
-    magenta: '\x1b[35m',
-    cyan: '\x1b[36m',
-    white: '\x1b[37m',
-    gray: '\x1b[90m',
-  };
+const baseLogger = winston.createLogger({
+  level: isDebug ? 'debug' : 'info',
+  levels: winston.config.npm.levels,
+  format: winston.format.combine(
+    winston.format.timestamp({ format: 'HH:mm:ss' }),
+    winston.format.colorize(),
+    winston.format.printf(({ level, message, timestamp }) => `[${timestamp}] ${level}: ${message}`)
+  ),
+  transports: [new winston.transports.Console()]
+});
 
-  static getTimestamp() {
-    return new Date().toLocaleTimeString('uk-UA', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      timeZone: 'Europe/Kiev'  // Завжди київський час
-    });
-  }
+function formatMessage(label, message) {
+  return label ? `[${label}] ${message}` : message;
+}
 
-  static colorize(text, color) {
-    return `${this.colors[color] || ''}${text}${this.colors.reset}`;
-  }
-
-  static formatPrefix(type, label) {
-    const timestamp = this.colorize(`[${this.getTimestamp()}]`, 'gray');
-
-    // Кольори для різних компонентів
-    const labelColors = {
-      'Scheduler': 'cyan',
-      'TgScraper': 'blue',
-      'ZoeScraper': 'green',
-      'Database': 'magenta',
-      'Server': 'yellow',
-      'API': 'white'
-    };
-
-    const labelColor = labelColors[label] || 'bright';
-    const labelFormatted = this.colorize(`[${label}]`, labelColor);
-
-    const icons = {
-      info: this.colorize('ℹ', 'blue'),
-      success: this.colorize('✓', 'green'),
-      warning: this.colorize('⚠', 'yellow'),
-      error: this.colorize('✗', 'red'),
-      debug: this.colorize('◆', 'magenta')
-    };
-
-    const icon = icons[type] || '';
-    return `${timestamp} ${icon} ${labelFormatted}`;
-  }
-
-  static info(label, message, data = null) {
-    console.log(this.formatPrefix('info', label), message);
-    if (data) this.printData(data);
-  }
-
-  static success(label, message, data = null) {
-    console.log(this.formatPrefix('success', label), message);
-    if (data) this.printData(data);
-  }
-
-  static warning(label, message, data = null) {
-    console.log(this.formatPrefix('warning', label), message);
-    if (data) this.printData(data);
-  }
-
-  static error(label, message, error = null) {
-    console.error(this.formatPrefix('error', label), message);
-    if (error) {
-      console.error(this.colorize(`  └─ ${error.message || error}`, 'red'));
-    }
-  }
-
-  static debug(label, message, data = null) {
-    // Перевіряємо DEBUG з .env або NODE_ENV
-    const isDebug = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
-    if (isDebug) {
-      console.log(this.formatPrefix('debug', label), message);
-      if (data) this.printData(data);
-    }
-  }
-
-  static printData(data) {
-    const formatted = typeof data === 'object'
-      ? JSON.stringify(data, null, 2)
-      : data;
-
-    formatted.split('\n').forEach(line => {
-      console.log(this.colorize(`  │ ${line}`, 'gray'));
-    });
-  }
-
-  // Спеціальні методи для компонентів
-  static server(message, data = null) {
-    this.info('Server', message, data);
-  }
-
-  static db(message, data = null) {
-    this.info('Database', message, data);
-  }
-
-  static cron(message, data = null) {
-    this.info('Scheduler', message, data);
-  }
-
-  static api(message, data = null) {
-    this.info('API', message, data);
-  }
-
-  // Форматоване виведення статистики
-  static stats(label, data) {
-    console.log(this.formatPrefix('success', label), this.colorize('Статистика:', 'cyan'));
-
-    const maxKeyLength = Math.max(...Object.keys(data).map(k => k.length));
-
-    Object.entries(data).forEach(([key, value]) => {
-      const formattedKey = key.padEnd(maxKeyLength + 2);
-      const displayValue = this.colorize(String(value), 'yellow');
-      console.log(`  ${this.colorize('│', 'gray')} ${formattedKey} ${displayValue}`);
-    });
-  }
-
-  // Виведення списку
-  static list(label, items, type = 'info') {
-    if (!items || items.length === 0) {
-      this.info(label, this.colorize('(порожньо)', 'gray'));
-      return;
-    }
-
-    console.log(this.formatPrefix(type, label));
-    items.forEach((item, index) => {
-      const prefix = index === items.length - 1 ? '└─' : '├─';
-      console.log(`  ${this.colorize(prefix, 'gray')} ${item}`);
-    });
-  }
-
-  // Розділювач
-  static divider() {
-    console.log(this.colorize('─'.repeat(60), 'gray'));
-  }
-
-  // Банер при запуску
-  static banner(title, version, env) {
-    console.log('\n' + this.colorize('═'.repeat(60), 'cyan'));
-    console.log(this.colorize(`  🚀 ${title}`, 'cyan') +
-      (version ? this.colorize(` v${version}`, 'bright') : ''));
-    if (env) {
-      console.log(this.colorize(`  Environment: ${env}`, 'gray'));
-    }
-    console.log(this.colorize('═'.repeat(60), 'cyan') + '\n');
-  }
-
-  // Компактний update summary
-  static updateSummary(result) {
-    const { total, updated, skipped, newSchedules = [], updatedSchedules = [] } = result;
-
-    const emoji = updated > 0 ? '✓' : '○';
-
-    const summary = `${emoji} ${total} дат: оновлено ${this.colorize(updated, 'yellow')}, пропущено ${skipped}`;
-    console.log(this.formatPrefix(updated > 0 ? 'success' : 'info', 'Scheduler'), summary);
-
-    if (newSchedules.length > 0) {
-      const dates = newSchedules.map(s => s.date).join(', ');
-      console.log(`  ${this.colorize('├─', 'gray')} Нові: ${this.colorize(dates, 'green')}`);
-    }
-
-    if (updatedSchedules.length > 0) {
-      const dates = updatedSchedules.map(s => s.date).join(', ');
-      console.log(`  ${this.colorize('└─', 'gray')} Змінені: ${this.colorize(dates, 'yellow')}`);
-    }
+function logWithData(level, label, message, data) {
+  const base = formatMessage(label, message);
+  if (data) {
+    const serialized = typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data);
+    baseLogger.log(level, `${base}\n${serialized}`);
+  } else {
+    baseLogger.log(level, base);
   }
 }
+
+const Logger = {
+  info(label, message, data = null) {
+    logWithData('info', label, message, data);
+  },
+  success(label, message, data = null) {
+    logWithData('info', label || 'Success', message, data);
+  },
+  warning(label, message, data = null) {
+    logWithData('warn', label, message, data);
+  },
+  error(label, message, error = null) {
+    const errMsg = error ? `${message} | ${error.message || error}` : message;
+    logWithData('error', label, errMsg, null);
+  },
+  debug(label, message, data = null) {
+    logWithData('debug', label, message, data);
+  },
+  server(message, data = null) {
+    this.info('Server', message, data);
+  },
+  db(message, data = null) {
+    this.info('Database', message, data);
+  },
+  cron(message, data = null) {
+    this.info('Scheduler', message, data);
+  },
+  api(message, data = null) {
+    this.info('API', message, data);
+  },
+  stats(label, data) {
+    const entries = Object.entries(data || {}).map(([k, v]) => `${k}: ${v}`).join(', ');
+    this.info(label, `Stats: ${entries}`);
+  },
+  list(label, items, type = 'info') {
+    if (!items || items.length === 0) {
+      this.info(label, '(empty)');
+      return;
+    }
+    logWithData(type, label, items.join(', '), null);
+  },
+  divider() {
+    console.log('─'.repeat(60));
+  },
+  banner(title, version, env) {
+    const lines = [
+      '═'.repeat(60),
+      `  ${title}${version ? ` v${version}` : ''}`,
+      env ? `  Environment: ${env}` : null,
+      '═'.repeat(60),
+    ].filter(Boolean);
+    console.log('\n' + lines.join('\n') + '\n');
+  },
+  updateSummary(result) {
+    const { total = 0, updated = 0, skipped = 0, newSchedules = [], updatedSchedules = [] } = result || {};
+    this.info('Scheduler', `Total: ${total}, Updated: ${updated}, Skipped: ${skipped}`);
+    if (newSchedules.length) this.info('Scheduler', `New dates: ${newSchedules.map(s => s.date).join(', ')}`);
+    if (updatedSchedules.length) this.info('Scheduler', `Updated dates: ${updatedSchedules.map(s => s.date).join(', ')}`);
+  }
+};
 
 export default Logger;

@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import config from "./config/index.js";
 import { initDatabase, db } from "./db.js";
-import { orchestrator } from "./services/SyncEngine.js";
+import { orchestrator, bootstrap } from "./services/SyncEngine.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
 import updateRoutes from "./routes/updateRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
@@ -151,10 +151,22 @@ class AutoUpdateService {
   async performUpdate(source = "scheduled") {
     Logger.cron(`Starting ${source} update...`);
     try {
-      // Синхронізуємо графіки
-      Logger.info('Scheduler', 'Using SyncEngine orchestrator');
-      const result = await orchestrator();
-      Logger.info('Scheduler', `Synced ${result.synced} dates, skipped ${result.skipped}`);
+      // Перевіряємо чи база порожня (перший запуск)
+      const count = db.prepare('SELECT COUNT(*) as count FROM schedule_metadata').get();
+      const isEmpty = count.count === 0;
+
+      let result;
+      if (isEmpty && source === "initial") {
+        // При першому запуску робимо повний bootstrap
+        Logger.info('Scheduler', 'Database is empty, running bootstrap (full sync)');
+        result = await bootstrap();
+        Logger.success('Scheduler', `Bootstrap completed: ${result.synced} dates synced`);
+      } else {
+        // При звичайних оновленнях використовуємо orchestrator (останні 7 днів)
+        Logger.info('Scheduler', 'Using SyncEngine orchestrator (last 7 days)');
+        result = await orchestrator();
+        Logger.info('Scheduler', `Synced ${result.synced} dates, skipped ${result.skipped}`);
+      }
 
       // Сканємо аварійні відключення
       try {
