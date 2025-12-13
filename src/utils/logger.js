@@ -1,6 +1,30 @@
 import winston from "winston";
 
-const isDebug = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
+/**
+ * Визначає environment:
+ * - development (dev): показує debug логи
+ * - production (prod): приховує debug логи
+ *
+ * NODE_ENV встановлюється автоматично npm скриптами:
+ * - yarn dev → development
+ * - yarn start → production
+ *
+ * Можна перевизначити через .env файл або явно передати при запуску
+ */
+function getEnvironment() {
+  const nodeEnv = process.env.NODE_ENV?.toLowerCase();
+
+  if (nodeEnv === 'dev' || nodeEnv === 'development') return 'development';
+  if (nodeEnv === 'prod' || nodeEnv === 'production') return 'production';
+
+  // За замовчуванням production (безпечніше)
+  return 'production';
+}
+
+const environment = getEnvironment();
+
+// Debug mode: явний DEBUG=true або development environment
+const isDebug = process.env.DEBUG === 'true' || environment === 'development';
 
 const baseLogger = winston.createLogger({
   level: isDebug ? 'debug' : 'info',
@@ -84,6 +108,13 @@ const Logger = {
     this.info('Scheduler', `Total: ${total}, Updated: ${updated}, Skipped: ${skipped}`);
     if (newSchedules.length) this.info('Scheduler', `New dates: ${newSchedules.map(s => s.date).join(', ')}`);
     if (updatedSchedules.length) this.info('Scheduler', `Updated dates: ${updatedSchedules.map(s => s.date).join(', ')}`);
+  },
+  // Експортуємо environment для використання в інших модулях
+  get environment() {
+    return environment;
+  },
+  get isDebug() {
+    return isDebug;
   }
 };
 

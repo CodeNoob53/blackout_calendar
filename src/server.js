@@ -130,7 +130,7 @@ app.get("/health", (req, res) => {
     status: "ok",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    environment: config.server.env,
+    environment: Logger.environment,
     cache: {
       size: cacheStats.size,
       keys: cacheStats.keys
@@ -212,7 +212,7 @@ const autoUpdate = new AutoUpdateService();
 // Keep-alive: Пінгуємо сервер кожні 14 хвилин, щоб не заснув на безкоштовному хостингу
 class KeepAliveService {
   constructor() {
-    this.enabled = config.server.env === 'production';
+    this.enabled = Logger.environment === 'production';
     this.interval = 14 * 60 * 1000; // 14 хвилин
   }
 
@@ -244,7 +244,7 @@ class KeepAliveService {
 const keepAlive = new KeepAliveService();
 
 const server = app.listen(PORT, () => {
-  Logger.banner("Blackout Calendar API", "2.0.0", config.server.env);
+  Logger.banner("Blackout Calendar API", "2.0.0", Logger.environment);
   Logger.success('Server', `Running at http://localhost:${PORT}`);
   Logger.info('Server', `API Documentation: http://localhost:${PORT}`);
   Logger.divider();

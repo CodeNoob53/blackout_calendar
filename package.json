@@ -5,8 +5,8 @@
   "type": "module",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "start": "cross-env NODE_ENV=production node src/server.js",
+    "dev": "cross-env NODE_ENV=development nodemon src/server.js",
     "build": "node scripts/init-db.js",
     "sync:bootstrap": "node src/cli/syncCli.js bootstrap",
     "sync:orchestrator": "node src/cli/syncCli.js orchestrator",
@@ -49,6 +49,7 @@
     "winston": "^3.14.2"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
