@@ -126,6 +126,11 @@ app.get("/health", (req, res) => {
   });
 });
 
+// Alias for Render health check
+app.get("/healthz", (req, res) => {
+  res.status(200).send("ok");
+});
+
 // Error handling middleware (має бути останнім)
 app.use(errorHandler);
 
