@@ -232,8 +232,12 @@ function groupByDate(updates) {
  * 1. Очищає існуючі дані для дати
  * 2. Записує фінальний стан
  * 3. Оновлює update_count (не інкремент, а реальна кількість)
+ *
+ * @param {string} date - Дата графіка
+ * @param {Array} timeline - Масив оновлень
+ * @param {boolean} sendNotifications - Чи надсилати push-сповіщення (false для bootstrap)
  */
-function writeSyncedData(date, timeline) {
+function writeSyncedData(date, timeline, sendNotifications = true) {
   if (timeline.length === 0) return { updated: false };
 
   // Фінальний апдейт = останній в timeline
@@ -242,6 +246,8 @@ function writeSyncedData(date, timeline) {
 
   // Перевіряємо чи існують дані в БД і чи вони змінились
   const existingMetadata = db.prepare('SELECT * FROM schedule_metadata WHERE date = ?').get(date);
+
+  Logger.debug('SyncEngine', `Checking ${date}: existingMetadata=${existingMetadata ? 'EXISTS' : 'NULL'}`);
 
   if (existingMetadata) {
     // Отримуємо існуючі outages для порівняння
@@ -274,8 +280,10 @@ function writeSyncedData(date, timeline) {
       const newContent = normalizeQueuesForComparison(finalUpdate.parsed.queues);
 
       if (existingContent === newContent) {
-        // Logger.debug('SyncEngine', `No content changes for ${date}, skipping write`);
+        Logger.debug('SyncEngine', `✅ ${date}: Content IDENTICAL, skipping (no push will be sent)`);
         return { updated: false, reason: 'no-changes' };
+      } else {
+        Logger.info('SyncEngine', `🔄 ${date}: Content CHANGED, will update DB and send push`);
       }
     }
   }
@@ -283,7 +291,8 @@ function writeSyncedData(date, timeline) {
   Logger.debug('SyncEngine', `Writing synced data for ${date}: ${updateCount} updates, final from ${finalUpdate.source}`);
 
   // changeType для метаданих та повідомлень
-  const metadataChangeType = updateCount > 1 ? 'updated' : 'new';
+  // ВАЖЛИВО: визначаємо по наявності існуючих метаданих, а не по кількості оновлень!
+  const metadataChangeType = existingMetadata ? 'updated' : 'new';
 
   // Використовуємо транзакцію для атомарного запису
   const transaction = db.transaction(() => {
@@ -388,22 +397,41 @@ function writeSyncedData(date, timeline) {
 
   transaction();
 
-  // Send Push Notification про зміну графіка
-  NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType).catch(err => {
-    Logger.error('SyncEngine', 'Failed to send notification', err);
-  });
+  // Send Push Notification ТІЛЬКИ якщо:
+  // 1. це НЕ bootstrap (sendNotifications = true)
+  // 2. контент РЕАЛЬНО змінився (якщо дійшли до цього місця - значить змінився, бо раніше був return)
+  // 3. (для сьогодні - ТІЛЬКИ оновлення) АБО (для завтра+ - ТІЛЬКИ нові графіки)
 
-  // Перепланувати автоматичні сповіщення ТІЛЬКИ для сьогодні та завтра
-  const today = new Date().toISOString().split('T')[0];
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  if (sendNotifications) {
+    // Визначаємо чи це сьогодні або завтра
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-  if (date === today || date === tomorrowStr) {
-    try {
-      rescheduleNotifications(date);
-    } catch (err) {
-      Logger.error('SyncEngine', 'Failed to reschedule notifications', err);
+    // Логіка відправки push:
+    // - Для СЬОГОДНІ: надсилаємо ТІЛЬКИ оновлення (change_type='updated')
+    // - Для ЗАВТРА+: надсилаємо ТІЛЬКИ нові графіки (change_type='new')
+    const shouldSendPush =
+      (date === today && metadataChangeType === 'updated') ||
+      (date >= tomorrowStr && metadataChangeType === 'new');
+
+    if (shouldSendPush) {
+      Logger.info('SyncEngine', `📨 Sending push notification: date=${date}, type=${metadataChangeType}`);
+      NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType, 'schedule_change').catch(err => {
+        Logger.error('SyncEngine', 'Failed to send notification', err);
+      });
+    } else {
+      Logger.debug('SyncEngine', `⏭️  Skipping push: date=${date}, type=${metadataChangeType} (not matching criteria)`);
+    }
+
+    // Перепланувати автоматичні сповіщення
+    if (date === today || date === tomorrowStr) {
+      try {
+        rescheduleNotifications(date);
+      } catch (err) {
+        Logger.error('SyncEngine', 'Failed to reschedule notifications', err);
+      }
     }
   }
 
@@ -412,8 +440,12 @@ function writeSyncedData(date, timeline) {
 
 /**
  * Синхронізує апдейти для заданих дат
+ * @param {Array} telegramUpdates - Оновлення з Telegram
+ * @param {Array} zoeUpdates - Оновлення з Zoe
+ * @param {boolean} skipDateFilter - Чи пропускати фільтр по датах
+ * @param {boolean} sendNotifications - Чи надсилати push-сповіщення
  */
-async function syncUpdates(telegramUpdates, zoeUpdates, skipDateFilter = false) {
+async function syncUpdates(telegramUpdates, zoeUpdates, skipDateFilter = false, sendNotifications = true) {
   Logger.info('SyncEngine', 'Starting sync process...');
 
   // 1. Об'єднуємо всі апдейти
@@ -449,7 +481,7 @@ async function syncUpdates(telegramUpdates, zoeUpdates, skipDateFilter = false) 
     }
 
     // Записуємо синхронізовані дані
-    const result = writeSyncedData(date, timeline);
+    const result = writeSyncedData(date, timeline, sendNotifications);
 
     if (result.updated) {
       results.synced++;
@@ -477,6 +509,7 @@ async function syncUpdates(telegramUpdates, zoeUpdates, skipDateFilter = false) 
 /**
  * Bootstrap: початкова синхронізація всіх даних
  * Обробляє всі дані з обох джерел
+ * БЕЗ надсилання push-сповіщень (тільки заповнення БД)
  */
 export async function bootstrap() {
   Logger.info('SyncEngine', '=== BOOTSTRAP: Starting initial sync ===');
@@ -488,8 +521,8 @@ export async function bootstrap() {
       fetchAllZoeUpdates()
     ]);
 
-    // 2. Синхронізуємо (БЕЗ фільтрації по датах - завантажуємо ВСІ графіки)
-    const results = await syncUpdates(telegramUpdates, zoeUpdates, true);
+    // 2. Синхронізуємо БЕЗ надсилання сповіщень (тільки заповнення БД)
+    const results = await syncUpdates(telegramUpdates, zoeUpdates, true, false);
 
     Logger.success('SyncEngine', `=== BOOTSTRAP COMPLETED ===`);
     Logger.info('SyncEngine', `Total dates: ${results.total}, Synced: ${results.synced}, Skipped: ${results.skipped}`);
@@ -503,7 +536,8 @@ export async function bootstrap() {
 
 /**
  * Orchestrator: регулярна синхронізація (останні 7 днів)
- * Викликається кожні 30 хвилин
+ * Викликається кожні 5 хвилин
+ * Надсилає push-сповіщення ТІЛЬКИ якщо знайдено РЕАЛЬНІ зміни (для сьогодні/завтра)
  */
 export async function orchestrator() {
   Logger.info('SyncEngine', '=== ORCHESTRATOR: Starting periodic sync ===');
@@ -525,7 +559,7 @@ export async function orchestrator() {
 
     Logger.debug('SyncEngine', `Filtered to last 7 days: Telegram=${recentTelegram.length}, Zoe=${recentZoe.length}`);
 
-    // 3. Синхронізуємо
+    // 3. Синхронізуємо з надсиланням push (тільки якщо є зміни для сьогодні/завтра)
     const results = await syncUpdates(recentTelegram, recentZoe);
 
     Logger.success('SyncEngine', `=== ORCHESTRATOR COMPLETED ===`);

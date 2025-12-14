@@ -210,27 +210,56 @@ export class NotificationService {
 
     /**
      * Send notification about schedule change
+     * Надсилається тільки про ОСТАННЮ актуальну зміну графіка
      * @param {Object} scheduleData - The schedule object
      * @param {string} changeType - 'new' or 'updated'
      * @param {string} notificationType - Type: 'schedule_change', 'tomorrow_schedule', 'emergency'
      */
     static async notifyScheduleChange(scheduleData, changeType, notificationType = 'schedule_change') {
-        if (!this.initialized) return;
+        if (!this.initialized) {
+            Logger.debug('NotificationService', 'Service not initialized, skipping notification');
+            return;
+        }
 
+        // Get schedule metadata to find when it was last updated
+        const scheduleMetadata = db.prepare(`
+            SELECT last_updated_at FROM schedule_metadata WHERE date = ?
+        `).get(scheduleData.date);
+
+        if (!scheduleMetadata) {
+            Logger.debug('NotificationService', `No metadata found for ${scheduleData.date}`);
+            return;
+        }
+
+        Logger.info('NotificationService', `📅 Schedule change for ${scheduleData.date}: ${changeType}, last_updated=${scheduleMetadata.last_updated_at}`);
+
+        // ONLY send to users whose subscription was created/updated BEFORE this schedule change
+        // This prevents new users from getting all historical notifications
         const subscriptions = db.prepare(`
             SELECT * FROM push_subscriptions
             WHERE failure_count < 5
             AND selected_queue IS NULL
+            AND updated_at < ?
             AND (
                 notification_types LIKE '%"all"%'
                 OR notification_types LIKE ?
             )
-        `).all(`%"${notificationType}"%`);
+        `).all(scheduleMetadata.last_updated_at, `%"${notificationType}"%`);
+
+        Logger.info('NotificationService', `👥 Found ${subscriptions.length} eligible subscribers (updated_at < ${scheduleMetadata.last_updated_at})`);
+
+        if (subscriptions.length > 0) {
+            subscriptions.forEach((sub, idx) => {
+                Logger.debug('NotificationService', `  [${idx + 1}] endpoint=${sub.endpoint.substring(0, 50)}..., updated_at=${sub.updated_at}`);
+            });
+        }
 
         const payload = JSON.stringify({
             title: changeType === 'new' ? 'Новий графік відключень!' : 'Графік оновлено!',
             body: `Отримано дані для: ${scheduleData.date}. Перевірте актуальний розклад.`,
             icon: '/icon-192x192.png',
+            tag: `schedule-${scheduleData.date}`, // Замінить старі повідомлення для тієї самої дати
+            renotify: true, // Показати нове повідомлення навіть якщо старе вже було
             data: {
                 type: notificationType,
                 date: scheduleData.date,
