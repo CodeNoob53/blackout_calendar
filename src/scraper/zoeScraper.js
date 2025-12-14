@@ -110,7 +110,7 @@ export async function fetchZoeUpdates() {
             'Pragma': 'no-cache'
           },
           httpsAgent: agent,
-          timeout: 60000, // 60 секунд (збільшено з 30)
+          timeout: 20000, // 20 секунд
           maxRedirects: 5,
           validateStatus: function (status) {
             return status >= 200 && status < 300;
