@@ -271,6 +271,51 @@ export class NotificationService {
     }
 
     /**
+     * Send emergency notification
+     * Sends to ALL subscribers with 'emergency' or 'all' type, regardless of schedule metadata
+     * @param {Object} emergencyData - Data about the emergency blackout
+     */
+    static async notifyEmergency(emergencyData) {
+        if (!this.initialized) {
+            Logger.debug('NotificationService', 'Service not initialized, skipping emergency notification');
+            return;
+        }
+
+        const { date, title, body, affectedGroups } = emergencyData;
+
+        Logger.info('NotificationService', `🚨 Sending EMERGENCY notification for ${date}`);
+
+        // Select all eligible subscriptions
+        // No check for updated_at vs schedule time - emergency is always relevant if it's new
+        const subscriptions = db.prepare(`
+            SELECT * FROM push_subscriptions
+            WHERE failure_count < 5
+            AND (
+                notification_types LIKE '%"all"%'
+                OR notification_types LIKE '%"emergency"%'
+            )
+        `).all();
+
+        Logger.info('NotificationService', `👥 Found ${subscriptions.length} subscribers for emergency alert`);
+
+        const payload = JSON.stringify({
+            title: title || '⚠️ Аварійні відключення',
+            body: body,
+            icon: '/icon-192x192.png',
+            tag: `emergency-${date}`, // Unique tag for this date's emergency
+            renotify: true,
+            data: {
+                type: 'emergency',
+                date: date,
+                affectedGroups,
+                url: `/?date=${date}&alert=emergency`
+            }
+        });
+
+        await this.sendNotifications(subscriptions, () => payload, 'emergency_blackout');
+    }
+
+    /**
      * Send personalized notification for specific queue
      * @param {string} queue - Queue number (e.g., "1.1")
      * @param {Object} data - Notification data

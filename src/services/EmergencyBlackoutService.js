@@ -207,17 +207,13 @@ async function sendEmergencyNotification(emergencyId, emergencyData) {
 
   try {
     // Відправляємо через NotificationService
-    // Використовуємо notifyScheduleChange як універсальний метод сповіщень
-    await NotificationService.notifyScheduleChange(
-      {
-        date,
-        title,
-        body,
-        affectedGroups
-      },
-      'emergency',
-      'emergency_blackout'
-    );
+    // Використовуємо новий метод notifyEmergency який не залежить від метаданих розкладу
+    await NotificationService.notifyEmergency({
+      date,
+      title,
+      body,
+      affectedGroups
+    });
 
     Logger.info('EmergencyBlackoutService', `Emergency notification sent for ${date}`);
 
