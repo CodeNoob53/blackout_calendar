@@ -87,29 +87,54 @@ export async function fetchZoeUpdates() {
     // Додаємо таймстемп, щоб обходити кеш на проміжних проксі (Cloudflare/бразуерні кеші)
     const requestUrl = `${ZOE_URL}?_=${Date.now()}`;
 
-    const response = await axios.get(requestUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      },
-      httpsAgent: agent,
-      timeout: 30000, // 30 секунд
-      maxRedirects: 5,
-      validateStatus: function (status) {
-        return status >= 200 && status < 300; // axios вважає помилкою тільки статуси < 200 або >= 300
+    // Retry logic
+    let attempts = 0;
+    const maxAttempts = 3;
+    let lastError;
+
+    while (attempts < maxAttempts) {
+      try {
+        attempts++;
+        if (attempts > 1) {
+          Logger.info('ZoeScraper', `Attempt ${attempts}/${maxAttempts} to fetch Zoe...`);
+          // Wait 2 seconds before retry
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+
+        const response = await axios.get(requestUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          },
+          httpsAgent: agent,
+          timeout: 60000, // 60 секунд (збільшено з 30)
+          maxRedirects: 5,
+          validateStatus: function (status) {
+            return status >= 200 && status < 300;
+          }
+        });
+
+        const html = response.data;
+
+        if (!html || typeof html !== 'string' || html.length < 100) {
+          throw new Error('Received empty or too short HTML response');
+        }
+
+        return html;
+
+      } catch (error) {
+        lastError = error;
+        // If it's a 404 or SSL error, retrying might not help, but timeout/connection errors benefit from retry.
+        // We continue the loop.
+        Logger.warning('ZoeScraper', `Attempt ${attempts} failed: ${error.message}`);
       }
-    });
-
-    const html = response.data;
-
-    if (!html || typeof html !== 'string' || html.length < 100) {
-      throw new Error('Received empty or too short HTML response');
     }
 
-    return html;
+    // If loop finishes without returning, throw the last error
+    throw lastError;
   } catch (error) {
     // Детальніше логування помилки
     if (axios.isAxiosError(error)) {
