@@ -52,7 +52,7 @@ export class NotificationService {
                 subscription.keys.auth,
                 userAgent || 'Unknown'
             );
-            Logger.info('NotificationService', 'New push subscription saved');
+            Logger.info('NotificationService', `Push subscription saved: ${subscription.endpoint.substring(0, 50)}...`);
             return true;
         } catch (error) {
             Logger.error('NotificationService', 'Failed to save subscription', error);
@@ -115,9 +115,12 @@ export class NotificationService {
             const result = stmt.run(...params);
 
             if (result.changes > 0) {
-                Logger.info('NotificationService', `Updated subscription: queue=${queue}`);
+                Logger.info('NotificationService', `Updated subscription: queue=${queue}, endpoint=${endpoint.substring(0, 50)}...`);
                 return true;
             }
+
+            // Log when subscription not found
+            Logger.warn('NotificationService', `Subscription not found for endpoint: ${endpoint.substring(0, 50)}...`);
             return false;
         } catch (error) {
             Logger.error('NotificationService', 'Failed to update queue', error);
