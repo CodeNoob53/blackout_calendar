@@ -11,7 +11,7 @@ import updateRoutes from "./routes/updateRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import emergencyRoutes from "./routes/emergencyRoutes.js";
 import { NotificationService } from "./services/NotificationService.js";
-import { initScheduleNotificationService } from "./services/ScheduleNotificationService.js";
+import { initScheduleNotificationService, getNotificationStats } from "./services/ScheduleNotificationService.js";
 import EmergencyBlackoutService from "./services/EmergencyBlackoutService.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { requestLogger } from "./middleware/requestLogger.js";
@@ -115,6 +115,7 @@ app.get("/api/debug/history", (req, res) => {
 // Health check endpoint
 app.get("/health", (req, res) => {
   const cacheStats = cache.getStats();
+  const notificationStats = getNotificationStats();
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
@@ -123,6 +124,10 @@ app.get("/health", (req, res) => {
     cache: {
       size: cacheStats.size,
       keys: cacheStats.keys
+    },
+    scheduledNotifications: {
+      total: notificationStats.totalJobs,
+      jobsCount: notificationStats.jobs.length
     }
   });
 });
