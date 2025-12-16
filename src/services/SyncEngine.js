@@ -400,7 +400,7 @@ function writeSyncedData(date, timeline, sendNotifications = true) {
   // Send Push Notification ТІЛЬКИ якщо:
   // 1. це НЕ bootstrap (sendNotifications = true)
   // 2. контент РЕАЛЬНО змінився (якщо дійшли до цього місця - значить змінився, бо раніше був return)
-  // 3. (для сьогодні - ТІЛЬКИ оновлення) АБО (для завтра+ - ТІЛЬКИ нові графіки)
+  // 3. (для сьогодні - ТІЛЬКИ оновлення) АБО (для завтра+ - нові або оновлені графіки)
 
   if (sendNotifications) {
     // Визначаємо чи це сьогодні або завтра
@@ -411,10 +411,10 @@ function writeSyncedData(date, timeline, sendNotifications = true) {
 
     // Логіка відправки push:
     // - Для СЬОГОДНІ: надсилаємо ТІЛЬКИ оновлення (change_type='updated')
-    // - Для ЗАВТРА+: надсилаємо ТІЛЬКИ нові графіки (change_type='new')
+    // - Для ЗАВТРА+: надсилаємо І нові графіки (change_type='new') І оновлення (change_type='updated')
     const shouldSendPush =
       (date === today && metadataChangeType === 'updated') ||
-      (date >= tomorrowStr && metadataChangeType === 'new');
+      (date >= tomorrowStr); // Для завтра+ надсилаємо завжди (і 'new' і 'updated')
 
     if (shouldSendPush) {
       Logger.info('SyncEngine', `📨 Sending push notification: date=${date}, type=${metadataChangeType}`);
