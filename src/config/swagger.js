@@ -17,6 +17,10 @@ const options = {
         },
         servers: [
             {
+                url: 'https://blackout-calendar.onrender.com',
+                description: 'Production server (Render Free Tier)',
+            },
+            {
                 url: 'http://localhost:3000',
                 description: 'Development server',
             },
