@@ -25,6 +25,21 @@ const options = {
                 description: 'Development server',
             },
         ],
+        components: {
+            securitySchemes: {
+                ApiKeyAuth: {
+                    type: 'apiKey',
+                    in: 'header',
+                    name: 'X-API-Key',
+                    description: 'API Key for authentication. Use Public Key for read-only access or Admin Key for full access.',
+                },
+            },
+        },
+        security: [
+            {
+                ApiKeyAuth: [],
+            },
+        ],
     },
     apis: ['./src/routes/*.js'], // Path to the API docs
 };

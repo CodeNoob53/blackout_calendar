@@ -2,8 +2,12 @@ import { Router } from 'express';
 import { ScheduleController } from '../controllers/ScheduleController.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { validateDateParam, validateQueueParam } from '../middleware/validators.js';
+import { requirePublicKey } from '../middleware/apiKeyAuth.js';
 
 const router = Router();
+
+// Apply API key authentication to all schedule routes
+router.use(requirePublicKey);
 
 /**
  * @swagger

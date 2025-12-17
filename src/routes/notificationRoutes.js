@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { NotificationService } from '../services/NotificationService.js';
 import { rescheduleNotifications, getNotificationStats } from '../services/ScheduleNotificationService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { requirePublicKey, requireAdminKey } from '../middleware/apiKeyAuth.js';
 import process from 'process';
 
 const router = Router();
@@ -42,6 +43,8 @@ const validateUpdateQueuePayload = (req, res, next) => {
  *   get:
  *     summary: Get VAPID Public Key
  *     tags: [Notifications]
+ *     security:
+ *       - ApiKeyAuth: []
  *     responses:
  *       200:
  *         description: VAPID Public Key
@@ -53,7 +56,7 @@ const validateUpdateQueuePayload = (req, res, next) => {
  *                 publicKey:
  *                   type: string
  */
-router.get('/vapid-key', (req, res) => {
+router.get('/vapid-key', requirePublicKey, (_req, res) => {
     res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
 });
 
@@ -84,7 +87,7 @@ router.get('/vapid-key', (req, res) => {
  *       201:
  *         description: Subscribed successfully
  */
-router.post('/subscribe', validateSubscriptionPayload, asyncHandler(async (req, res) => {
+router.post('/subscribe', requirePublicKey, validateSubscriptionPayload, asyncHandler(async (req, res) => {
     const subscription = req.body;
     const userAgent = req.headers['user-agent'];
 
@@ -120,7 +123,7 @@ router.post('/subscribe', validateSubscriptionPayload, asyncHandler(async (req, 
  *       200:
  *         description: Unsubscribed successfully
  */
-router.post('/unsubscribe', validateEndpointBody, asyncHandler(async (req, res) => {
+router.post('/unsubscribe', requirePublicKey, validateEndpointBody, asyncHandler(async (req, res) => {
     const { endpoint } = req.body;
 
     const success = NotificationService.removeSubscription(endpoint);
@@ -160,7 +163,7 @@ router.post('/unsubscribe', validateEndpointBody, asyncHandler(async (req, res) 
  *       200:
  *         description: Queue updated successfully
  */
-router.post('/update-queue', validateUpdateQueuePayload, asyncHandler(async (req, res) => {
+router.post('/update-queue', requirePublicKey, validateUpdateQueuePayload, asyncHandler(async (req, res) => {
     const { endpoint, queue, notificationTypes } = req.body;
 
     const success = NotificationService.updateUserQueue(endpoint, queue, notificationTypes);
@@ -192,7 +195,7 @@ router.post('/update-queue', validateUpdateQueuePayload, asyncHandler(async (req
  *       200:
  *         description: Test notification sent
  */
-router.post('/test', asyncHandler(async (req, res) => {
+router.post('/test', requireAdminKey, asyncHandler(async (req, res) => {
     const { endpoint } = req.body;
 
     try {
@@ -219,7 +222,7 @@ router.post('/test', asyncHandler(async (req, res) => {
  *       200:
  *         description: Subscription count and stats
  */
-router.get('/subscriptions/count', (req, res) => {
+router.get('/subscriptions/count', requireAdminKey, (_req, res) => {
     const stats = NotificationService.getSubscriptionStats();
     res.json({ success: true, ...stats });
 });
@@ -235,7 +238,7 @@ router.get('/subscriptions/count', (req, res) => {
  *       200:
  *         description: Test notification sent
  */
-router.post('/test-general', asyncHandler(async (req, res) => {
+router.post('/test-general', requireAdminKey, asyncHandler(async (_req, res) => {
     try {
         await NotificationService.notifyScheduleChange(
             { date: new Date().toISOString().split('T')[0] },
@@ -273,7 +276,7 @@ router.post('/test-general', asyncHandler(async (req, res) => {
  *       200:
  *         description: Notifications rescheduled
  */
-router.post('/reschedule', asyncHandler(async (req, res) => {
+router.post('/reschedule', requireAdminKey, asyncHandler(async (req, res) => {
     try {
         const date = req.body.date || new Date().toISOString().split('T')[0];
         rescheduleNotifications(date);
@@ -296,7 +299,7 @@ router.post('/reschedule', asyncHandler(async (req, res) => {
  *       200:
  *         description: Schedule notification statistics
  */
-router.get('/schedule-stats', (req, res) => {
+router.get('/schedule-stats', requireAdminKey, (_req, res) => {
     const stats = getNotificationStats();
     res.json({ success: true, ...stats });
 });
