@@ -39,28 +39,49 @@ export class NotificationService {
      * Subscribe a new client
      * @param {Object} subscription - PushSubscription object from client
      * @param {string} userAgent - User agent string
+     * @param {string} [queue] - Optional queue number to set immediately
+     * @param {Array<string>} [notificationTypes] - Optional notification types
      */
-    static saveSubscription(subscription, userAgent) {
+    static saveSubscription(subscription, userAgent, queue = null, notificationTypes = null) {
         if (!subscription || !subscription.endpoint) {
             throw new Error('Invalid subscription object');
         }
 
+        const fields = ['endpoint', 'keys_p256dh', 'keys_auth', 'user_agent'];
+        const values = [
+            subscription.endpoint,
+            subscription.keys.p256dh,
+            subscription.keys.auth,
+            userAgent || 'Unknown'
+        ];
+        const updateFields = ['updated_at = CURRENT_TIMESTAMP', 'last_active = CURRENT_TIMESTAMP'];
+
+        // Add optional queue
+        if (queue !== null && queue !== undefined) {
+            fields.push('selected_queue');
+            values.push(queue);
+            updateFields.push('selected_queue = excluded.selected_queue');
+        }
+
+        // Add optional notification types
+        if (notificationTypes !== null && notificationTypes !== undefined) {
+            fields.push('notification_types');
+            values.push(JSON.stringify(notificationTypes));
+            updateFields.push('notification_types = excluded.notification_types');
+        }
+
+        const placeholders = fields.map(() => '?').join(', ');
         const stmt = db.prepare(`
-      INSERT INTO push_subscriptions (endpoint, keys_p256dh, keys_auth, user_agent)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(endpoint) DO UPDATE SET
-        updated_at = CURRENT_TIMESTAMP,
-        last_active = CURRENT_TIMESTAMP
-    `);
+            INSERT INTO push_subscriptions (${fields.join(', ')})
+            VALUES (${placeholders})
+            ON CONFLICT(endpoint) DO UPDATE SET
+                ${updateFields.join(', ')}
+        `);
 
         try {
-            stmt.run(
-                subscription.endpoint,
-                subscription.keys.p256dh,
-                subscription.keys.auth,
-                userAgent || 'Unknown'
-            );
-            Logger.info('NotificationService', `Push subscription saved: ${subscription.endpoint.substring(0, 50)}...`);
+            stmt.run(...values);
+            const queueInfo = queue ? ` (queue: ${queue})` : '';
+            Logger.info('NotificationService', `Push subscription saved: ${subscription.endpoint.substring(0, 50)}...${queueInfo}`);
             return true;
         } catch (error) {
             Logger.error('NotificationService', 'Failed to save subscription', error);

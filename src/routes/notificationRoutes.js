@@ -83,16 +83,29 @@ router.get('/vapid-key', (_req, res) => {
  *                     type: string
  *                   auth:
  *                     type: string
+ *               queue:
+ *                 type: string
+ *                 description: Optional queue number to set immediately (e.g., "1.1")
+ *               notificationTypes:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Optional notification types (defaults to ["all"])
  *     responses:
  *       201:
  *         description: Subscribed successfully
  */
 router.post('/subscribe', validateSubscriptionPayload, asyncHandler(async (req, res) => {
-    const subscription = req.body;
+    const { queue, notificationTypes, ...subscription } = req.body;
     const userAgent = req.headers['user-agent'];
 
     try {
-        const success = NotificationService.saveSubscription(subscription, userAgent);
+        const success = NotificationService.saveSubscription(
+            subscription,
+            userAgent,
+            queue,
+            notificationTypes
+        );
         if (success) {
             res.status(201).json({ success: true, message: 'Subscribed successfully' });
         } else {
