@@ -69,25 +69,23 @@ function cancelAllJobs() {
 function calculateWarningTime(startTime) {
   const [hours, minutes] = startTime.split(':').map(Number);
 
-  // Створюємо дату в UTC для сьогоднішнього дня
-  const today = new Date();
-  const warningDate = new Date(Date.UTC(
-    today.getUTCFullYear(),
-    today.getUTCMonth(),
-    today.getUTCDate(),
+  // Отримуємо сьогоднішню дату в київському часі
+  const now = new Date();
+  const kyivDate = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Kyiv' }));
+
+  // Створюємо дату з київським часом відключення
+  const warningDate = new Date(
+    kyivDate.getFullYear(),
+    kyivDate.getMonth(),
+    kyivDate.getDate(),
     hours,
     minutes,
     0,
     0
-  ));
-
-  // Віднімаємо різницю між Київським часом та UTC (зараз UTC+2, влітку UTC+3)
-  // Київ зараз UTC+2 (зимовий час)
-  const kyivOffset = 2; // годин
-  warningDate.setUTCHours(warningDate.getUTCHours() - kyivOffset);
+  );
 
   // Віднімаємо 30 хвилин для попередження
-  warningDate.setUTCMinutes(warningDate.getUTCMinutes() - 30);
+  warningDate.setMinutes(warningDate.getMinutes() - 30);
 
   return warningDate;
 }
@@ -99,21 +97,20 @@ function calculateWarningTime(startTime) {
 function calculatePowerOnTime(endTime) {
   const [hours, minutes] = endTime.split(':').map(Number);
 
-  // Створюємо дату в UTC для сьогоднішнього дня
-  const today = new Date();
-  const powerOnDate = new Date(Date.UTC(
-    today.getUTCFullYear(),
-    today.getUTCMonth(),
-    today.getUTCDate(),
+  // Отримуємо сьогоднішню дату в київському часі
+  const now = new Date();
+  const kyivDate = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Kyiv' }));
+
+  // Створюємо дату з київським часом увімкнення
+  const powerOnDate = new Date(
+    kyivDate.getFullYear(),
+    kyivDate.getMonth(),
+    kyivDate.getDate(),
     hours,
     minutes,
     0,
     0
-  ));
-
-  // Віднімаємо різницю між Київським часом та UTC (зараз UTC+2, влітку UTC+3)
-  const kyivOffset = 2; // годин
-  powerOnDate.setUTCHours(powerOnDate.getUTCHours() - kyivOffset);
+  );
 
   return powerOnDate;
 }

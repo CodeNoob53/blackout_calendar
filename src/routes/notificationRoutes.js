@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { NotificationService } from '../services/NotificationService.js';
 import { rescheduleNotifications, getNotificationStats } from '../services/ScheduleNotificationService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import { requirePublicKey, requireAdminKey } from '../middleware/apiKeyAuth.js';
+import { requireAdminKey } from '../middleware/apiKeyAuth.js';
 import process from 'process';
 
 const router = Router();
@@ -43,8 +43,7 @@ const validateUpdateQueuePayload = (req, res, next) => {
  *   get:
  *     summary: Get VAPID Public Key
  *     tags: [Notifications]
- *     security:
- *       - ApiKeyAuth: []
+ *     security: []
  *     responses:
  *       200:
  *         description: VAPID Public Key
@@ -56,7 +55,7 @@ const validateUpdateQueuePayload = (req, res, next) => {
  *                 publicKey:
  *                   type: string
  */
-router.get('/vapid-key', requirePublicKey, (_req, res) => {
+router.get('/vapid-key', (_req, res) => {
     res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
 });
 
@@ -66,6 +65,7 @@ router.get('/vapid-key', requirePublicKey, (_req, res) => {
  *   post:
  *     summary: Subscribe to push notifications
  *     tags: [Notifications]
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:
@@ -87,7 +87,7 @@ router.get('/vapid-key', requirePublicKey, (_req, res) => {
  *       201:
  *         description: Subscribed successfully
  */
-router.post('/subscribe', requirePublicKey, validateSubscriptionPayload, asyncHandler(async (req, res) => {
+router.post('/subscribe', validateSubscriptionPayload, asyncHandler(async (req, res) => {
     const subscription = req.body;
     const userAgent = req.headers['user-agent'];
 
@@ -109,6 +109,7 @@ router.post('/subscribe', requirePublicKey, validateSubscriptionPayload, asyncHa
  *   post:
  *     summary: Unsubscribe from push notifications
  *     tags: [Notifications]
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:
@@ -123,7 +124,7 @@ router.post('/subscribe', requirePublicKey, validateSubscriptionPayload, asyncHa
  *       200:
  *         description: Unsubscribed successfully
  */
-router.post('/unsubscribe', requirePublicKey, validateEndpointBody, asyncHandler(async (req, res) => {
+router.post('/unsubscribe', validateEndpointBody, asyncHandler(async (req, res) => {
     const { endpoint } = req.body;
 
     const success = NotificationService.removeSubscription(endpoint);
@@ -141,6 +142,7 @@ router.post('/unsubscribe', requirePublicKey, validateEndpointBody, asyncHandler
  *   post:
  *     summary: Update selected queue for personalized notifications
  *     tags: [Notifications]
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:
@@ -163,7 +165,7 @@ router.post('/unsubscribe', requirePublicKey, validateEndpointBody, asyncHandler
  *       200:
  *         description: Queue updated successfully
  */
-router.post('/update-queue', requirePublicKey, validateUpdateQueuePayload, asyncHandler(async (req, res) => {
+router.post('/update-queue', validateUpdateQueuePayload, asyncHandler(async (req, res) => {
     const { endpoint, queue, notificationTypes } = req.body;
 
     const success = NotificationService.updateUserQueue(endpoint, queue, notificationTypes);
