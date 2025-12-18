@@ -5,8 +5,16 @@ import process from 'process';
 
 export class NotificationService {
     static initialized = false;
+    // Dedupe map: endpoint -> Set<notification_key>
+    // Очищається автоматично кожні 10 хвилин
+    static recentNotifications = new Map();
 
     static init() {
+        // Очищення dedupe кешу кожні 10 хвилин
+        setInterval(() => {
+            this.recentNotifications.clear();
+            Logger.debug('NotificationService', 'Cleared notification dedupe cache');
+        }, 10 * 60 * 1000);
         if (this.initialized) return;
 
         if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
@@ -364,8 +372,29 @@ export class NotificationService {
         const incrementFailureStmt = db.prepare('UPDATE push_subscriptions SET failure_count = failure_count + 1 WHERE id = ?');
         const deleteStmt = db.prepare('DELETE FROM push_subscriptions WHERE id = ?');
 
+        let skippedDuplicates = 0;
+
         const tasks = subscriptions.map(async (sub) => {
             const payload = payloadFactory(sub);
+            const payloadData = JSON.parse(payload);
+
+            // Dedupe: перевіряємо чи не відправляли вже це сповіщення цьому endpoint
+            const dedupeKey = `${payloadData.data?.type || 'unknown'}:${payloadData.data?.queue || ''}:${payloadData.data?.url || payloadData.title}`;
+
+            if (!this.recentNotifications.has(sub.endpoint)) {
+                this.recentNotifications.set(sub.endpoint, new Set());
+            }
+
+            const userNotifications = this.recentNotifications.get(sub.endpoint);
+            if (userNotifications.has(dedupeKey)) {
+                skippedDuplicates++;
+                Logger.debug('NotificationService', `Skipping duplicate notification for ${sub.endpoint.substring(0, 50)}... (${dedupeKey})`);
+                return; // Пропускаємо дублікат
+            }
+
+            // Позначаємо що відправили
+            userNotifications.add(dedupeKey);
+
             const pushSubscription = {
                 endpoint: sub.endpoint,
                 keys: {
@@ -389,5 +418,9 @@ export class NotificationService {
         });
 
         await Promise.allSettled(tasks);
+
+        if (skippedDuplicates > 0) {
+            Logger.info('NotificationService', `Skipped ${skippedDuplicates} duplicate notification(s)`);
+        }
     }
 }
