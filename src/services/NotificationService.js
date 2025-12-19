@@ -276,7 +276,10 @@ export class NotificationService {
                         p256dh: sub.keys_p256dh,
                         auth: sub.keys_auth
                     }
-                }, payload);
+                }, payload, {
+                    TTL: 300,        // 5 minutes - test notification doesn't need long TTL
+                    urgency: 'normal' // Normal priority for test
+                });
                 sent++;
             } catch (error) {
                 failed++;
@@ -354,7 +357,11 @@ export class NotificationService {
             }
         });
 
-        await this.sendNotifications(subscriptions, () => payload, notificationType);
+        await this.sendNotifications(subscriptions, () => payload, notificationType, {
+            ttl: 604800,     // 1 week - user can check schedule anytime
+            urgency: 'low',  // Not time-critical, can wait for better battery conditions
+            topic: `schedule-${scheduleData.date}` // Coalesce multiple updates for same date
+        });
     }
 
     /**
@@ -399,7 +406,11 @@ export class NotificationService {
             }
         });
 
-        await this.sendNotifications(subscriptions, () => payload, 'emergency_blackout');
+        await this.sendNotifications(subscriptions, () => payload, 'emergency_blackout', {
+            ttl: 86400,      // 24 hours - important but loses relevance after a day
+            urgency: 'high', // Emergency - deliver immediately!
+            topic: `emergency-${date}` // Coalesce multiple emergency alerts for same date
+        });
     }
 
     /**
@@ -432,17 +443,48 @@ export class NotificationService {
             }
         });
 
-        await this.sendNotifications(subscriptions, payloadBuilder, `${notificationType} (queue ${queue})`);
+        // Different TTL and urgency based on notification type
+        let options;
+        if (notificationType === 'power_off_30min') {
+            // CRITICAL: User needs to prepare for power outage
+            options = {
+                ttl: 3600,       // 1 hour - useless after power is already off
+                urgency: 'high', // Deliver immediately, wake device if needed
+                // No topic - each power-off warning is unique and important
+            };
+        } else if (notificationType === 'power_on') {
+            // HELPFUL: User can plan to use power
+            options = {
+                ttl: 14400,       // 4 hours - still useful to know power is back
+                urgency: 'normal', // Normal priority, don't wake device aggressively
+                // No topic - each power-on notification is unique
+            };
+        } else {
+            // Default for any other types
+            options = {
+                ttl: 7200,        // 2 hours default
+                urgency: 'normal'
+            };
+        }
+
+        await this.sendNotifications(subscriptions, payloadBuilder, `${notificationType} (queue ${queue})`, options);
     }
 
     // Shared sender to keep delivery logic consistent
-    static async sendNotifications(subscriptions, payloadFactory, contextLabel) {
+    static async sendNotifications(subscriptions, payloadFactory, contextLabel, options = {}) {
         if (!subscriptions || subscriptions.length === 0) {
             Logger.debug('NotificationService', `No subscribers for ${contextLabel || 'notification'}`);
             return;
         }
 
-        Logger.info('NotificationService', `Sending ${contextLabel || 'notifications'} to ${subscriptions.length} subscribers...`);
+        // Default options based on Web Push best practices
+        const {
+            ttl = 604800,      // Default: 1 week (in seconds)
+            urgency = 'normal', // Default: normal priority (very-low, low, normal, high)
+            topic = null       // Optional: topic for message coalescing (max 32 chars)
+        } = options;
+
+        Logger.info('NotificationService', `Sending ${contextLabel || 'notifications'} to ${subscriptions.length} subscribers (TTL: ${ttl}s, urgency: ${urgency})...`);
 
         const updateSuccessStmt = db.prepare('UPDATE push_subscriptions SET last_active = CURRENT_TIMESTAMP, failure_count = 0 WHERE id = ?');
         const incrementFailureStmt = db.prepare('UPDATE push_subscriptions SET failure_count = failure_count + 1 WHERE id = ?');
@@ -480,15 +522,34 @@ export class NotificationService {
             };
 
             try {
-                await webpush.sendNotification(pushSubscription, payload);
+                // Build options for web-push
+                const sendOptions = { TTL: ttl, urgency };
+                if (topic) {
+                    sendOptions.topic = topic;
+                }
+
+                await webpush.sendNotification(pushSubscription, payload, sendOptions);
                 updateSuccessStmt.run(sub.id);
             } catch (error) {
+                // Handle permanent failures (subscription expired/invalid)
                 if (error.statusCode === 410 || error.statusCode === 404) {
                     deleteStmt.run(sub.id);
-                    Logger.debug('NotificationService', `Removed invalid subscription ${sub.id}`);
-                } else {
+                    Logger.debug('NotificationService', `Removed invalid subscription ${sub.id} (${error.statusCode})`);
+                }
+                // Handle rate limiting - should retry later
+                else if (error.statusCode === 429) {
+                    Logger.warn('NotificationService', `Rate limited for subscription ${sub.id}, will retry on next schedule`);
+                    // Don't increment failure count - this is temporary
+                }
+                // Handle server errors - temporary, don't penalize
+                else if (error.statusCode >= 500 && error.statusCode < 600) {
+                    Logger.warn('NotificationService', `Temporary server error for ${sub.id}: ${error.statusCode}`);
+                    // Don't increment failure count immediately - might be temporary
+                }
+                // Other errors - increment failure count
+                else {
                     incrementFailureStmt.run(sub.id);
-                    Logger.error('NotificationService', `Failed to send to ${sub.id}`, error);
+                    Logger.error('NotificationService', `Failed to send to ${sub.id} (${error.statusCode}):`, error.message);
                 }
             }
         });
