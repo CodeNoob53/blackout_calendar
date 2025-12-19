@@ -244,6 +244,23 @@ router.get('/subscriptions/count', requireAdminKey, (_req, res) => {
 
 /**
  * @swagger
+ * /api/notifications/subscriptions/details:
+ *   get:
+ *     summary: Get detailed subscription statistics
+ *     tags: [Notifications]
+ *     security:
+ *       - AdminKey: []
+ *     responses:
+ *       200:
+ *         description: Detailed subscription statistics including breakdown by queue
+ */
+router.get('/subscriptions/details', requireAdminKey, (_req, res) => {
+    const stats = NotificationService.getDetailedSubscriptionStats();
+    res.json({ success: true, ...stats });
+});
+
+/**
+ * @swagger
  * /api/notifications/test-general:
  *   post:
  *     summary: Send test general notification (debug only)

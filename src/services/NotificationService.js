@@ -179,6 +179,61 @@ export class NotificationService {
     }
 
     /**
+     * Get detailed subscription statistics including breakdown by queue
+     */
+    static getDetailedSubscriptionStats() {
+        try {
+            const total = db.prepare('SELECT COUNT(*) as count FROM push_subscriptions').get().count;
+            const withQueue = db.prepare('SELECT COUNT(*) as count FROM push_subscriptions WHERE selected_queue IS NOT NULL').get().count;
+            const active = db.prepare('SELECT COUNT(*) as count FROM push_subscriptions WHERE failure_count < 3').get().count;
+
+            // Get breakdown by queue
+            const byQueue = db.prepare(`
+                SELECT selected_queue, COUNT(*) as count
+                FROM push_subscriptions
+                GROUP BY selected_queue
+                ORDER BY count DESC
+            `).all();
+
+            // Get recent subscriptions
+            const recentSubs = db.prepare(`
+                SELECT endpoint, selected_queue, created_at, last_active, failure_count
+                FROM push_subscriptions
+                ORDER BY created_at DESC
+                LIMIT 10
+            `).all();
+
+            return {
+                total,
+                withQueue,
+                active,
+                inactive: total - active,
+                byQueue: byQueue.map(row => ({
+                    queue: row.selected_queue || 'NULL',
+                    count: row.count
+                })),
+                recentSubscriptions: recentSubs.map(sub => ({
+                    endpoint: sub.endpoint.substring(0, 60) + '...',
+                    queue: sub.selected_queue,
+                    createdAt: sub.created_at,
+                    lastActive: sub.last_active,
+                    failureCount: sub.failure_count
+                }))
+            };
+        } catch (error) {
+            Logger.error('NotificationService', 'Failed to get detailed stats', error);
+            return {
+                total: 0,
+                withQueue: 0,
+                active: 0,
+                inactive: 0,
+                byQueue: [],
+                recentSubscriptions: []
+            };
+        }
+    }
+
+    /**
      * Send test notification
      * @param {string|null} endpoint - Optional specific endpoint, or null for all
      */
