@@ -149,7 +149,7 @@ export class NotificationService {
             }
 
             // Log when subscription not found
-            Logger.warn('NotificationService', `Subscription not found for endpoint: ${endpoint.substring(0, 50)}...`);
+            Logger.warning('NotificationService', `Subscription not found for endpoint: ${endpoint.substring(0, 50)}...`);
             return false;
         } catch (error) {
             Logger.error('NotificationService', 'Failed to update queue', error);
@@ -538,12 +538,12 @@ export class NotificationService {
                 }
                 // Handle rate limiting - should retry later
                 else if (error.statusCode === 429) {
-                    Logger.warn('NotificationService', `Rate limited for subscription ${sub.id}, will retry on next schedule`);
+                    Logger.warning('NotificationService', `Rate limited for subscription ${sub.id}, will retry on next schedule`);
                     // Don't increment failure count - this is temporary
                 }
                 // Handle server errors - temporary, don't penalize
                 else if (error.statusCode >= 500 && error.statusCode < 600) {
-                    Logger.warn('NotificationService', `Temporary server error for ${sub.id}: ${error.statusCode}`);
+                    Logger.warning('NotificationService', `Temporary server error for ${sub.id}: ${error.statusCode}`);
                     // Don't increment failure count immediately - might be temporary
                 }
                 // Other errors - increment failure count

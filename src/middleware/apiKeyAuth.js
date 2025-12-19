@@ -23,7 +23,7 @@ export const requireApiKey = (requiredLevel = 'public') => {
 
     // No API key provided
     if (!apiKey) {
-      Logger.warn('ApiKeyAuth', `Missing API key for ${req.method} ${req.path}`);
+      Logger.warning('ApiKeyAuth', `Missing API key for ${req.method} ${req.path}`);
       return res.status(401).json({
         success: false,
         error: 'API key is required',
@@ -63,7 +63,7 @@ export const requireApiKey = (requiredLevel = 'public') => {
     }
 
     if (!isValid) {
-      Logger.warn('ApiKeyAuth', `Invalid ${requiredLevel} API key attempt for ${req.method} ${req.path}`);
+      Logger.warning('ApiKeyAuth', `Invalid ${requiredLevel} API key attempt for ${req.method} ${req.path}`);
       return res.status(403).json({
         success: false,
         error: 'Invalid API key',
