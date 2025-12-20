@@ -64,27 +64,29 @@ function cancelAllJobs() {
 
 /**
  * Розрахувати час для сповіщення "за 30 хв до відключення"
- * ВАЖЛИВО: startTime - це час в Київському часовому поясі (Europe/Kyiv, UTC+2/+3)
+ * ВАЖЛИВО: startTime - це час в Київському часовому поясі (Europe/Kyiv, UTC+2)
  */
 function calculateWarningTime(startTime) {
   const [hours, minutes] = startTime.split(':').map(Number);
 
-  // Отримуємо сьогоднішню дату в київському часі
+  // Get current date/time in Kyiv timezone using Intl.DateTimeFormat
   const now = new Date();
-  const kyivDate = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Kyiv' }));
+  const kyivFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Kyiv',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const kyivDateStr = kyivFormatter.format(now); // "2025-12-20"
 
-  // Створюємо дату з київським часом відключення
-  const warningDate = new Date(
-    kyivDate.getFullYear(),
-    kyivDate.getMonth(),
-    kyivDate.getDate(),
-    hours,
-    minutes,
-    0,
-    0
-  );
+  // Build ISO string in Kyiv timezone: "2025-12-20T21:00:00+02:00"
+  // Ukraine permanently uses UTC+2 (no DST as of 2025)
+  const kyivTimeStr = `${kyivDateStr}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00+02:00`;
 
-  // Віднімаємо 30 хвилин для попередження
+  // Parse as UTC Date object
+  const warningDate = new Date(kyivTimeStr);
+
+  // Subtract 30 minutes for warning
   warningDate.setMinutes(warningDate.getMinutes() - 30);
 
   return warningDate;
@@ -92,25 +94,27 @@ function calculateWarningTime(startTime) {
 
 /**
  * Розрахувати час для сповіщення "світло увімкнулось"
- * ВАЖЛИВО: endTime - це час в Київському часовому поясі (Europe/Kyiv, UTC+2/+3)
+ * ВАЖЛИВО: endTime - це час в Київському часовому поясі (Europe/Kyiv, UTC+2)
  */
 function calculatePowerOnTime(endTime) {
   const [hours, minutes] = endTime.split(':').map(Number);
 
-  // Отримуємо сьогоднішню дату в київському часі
+  // Get current date/time in Kyiv timezone using Intl.DateTimeFormat
   const now = new Date();
-  const kyivDate = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Kyiv' }));
+  const kyivFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Kyiv',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const kyivDateStr = kyivFormatter.format(now); // "2025-12-20"
 
-  // Створюємо дату з київським часом увімкнення
-  const powerOnDate = new Date(
-    kyivDate.getFullYear(),
-    kyivDate.getMonth(),
-    kyivDate.getDate(),
-    hours,
-    minutes,
-    0,
-    0
-  );
+  // Build ISO string in Kyiv timezone: "2025-12-20T17:00:00+02:00"
+  // Ukraine permanently uses UTC+2 (no DST as of 2025)
+  const kyivTimeStr = `${kyivDateStr}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00+02:00`;
+
+  // Parse as UTC Date object
+  const powerOnDate = new Date(kyivTimeStr);
 
   return powerOnDate;
 }
