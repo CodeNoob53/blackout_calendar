@@ -43,6 +43,7 @@ export function initEmergencyBlackoutsTable() {
 
 /**
  * Зберігає ГАВ в базу даних
+ * @returns {object} { id: number, isNew: boolean }
  */
 export function saveEmergencyBlackout(emergencyData, messageId, messageDate) {
   const { date, affectedGroups, rawText } = emergencyData;
@@ -54,7 +55,7 @@ export function saveEmergencyBlackout(emergencyData, messageId, messageDate) {
 
   if (existing) {
     Logger.debug('EmergencyBlackoutService', `Emergency blackout already exists: message_id=${messageId}`);
-    return existing.id;
+    return { id: existing.id, isNew: false };
   }
 
   // Вставляємо новий запис
@@ -71,7 +72,7 @@ export function saveEmergencyBlackout(emergencyData, messageId, messageDate) {
 
   Logger.info('EmergencyBlackoutService', `Saved emergency blackout: id=${result.lastInsertRowid}, date=${date}, groups=${affectedGroups.join(',')}`);
 
-  return result.lastInsertRowid;
+  return { id: result.lastInsertRowid, isNew: true };
 }
 
 /**
@@ -159,11 +160,11 @@ export async function scanForEmergencyBlackouts() {
       }
 
       try {
-        const emergencyId = saveEmergencyBlackout(parsed, msg.id, msg.messageDate);
+        const result = saveEmergencyBlackout(parsed, msg.id, msg.messageDate);
 
-        // Якщо це новий запис, відправляємо сповіщення
-        if (emergencyId) {
-          await sendEmergencyNotification(emergencyId, parsed);
+        // Відправляємо сповіщення ТІЛЬКИ якщо це новий запис
+        if (result.isNew) {
+          await sendEmergencyNotification(result.id, parsed);
           newEmergencies++;
         }
       } catch (error) {
