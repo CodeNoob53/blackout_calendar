@@ -15,6 +15,20 @@ export class NotificationService {
             this.recentNotifications.clear();
             Logger.debug('NotificationService', 'Cleared notification dedupe cache');
         }, 10 * 60 * 1000);
+
+        // Очищення старих записів денних лімітів (старіші 7 днів)
+        setInterval(() => {
+            try {
+                const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                const result = db.prepare('DELETE FROM daily_notification_counts WHERE date < ?').run(sevenDaysAgo);
+                if (result.changes > 0) {
+                    Logger.debug('NotificationService', `Cleaned up ${result.changes} old daily count records`);
+                }
+            } catch (error) {
+                Logger.error('NotificationService', 'Failed to cleanup daily counts', error);
+            }
+        }, 24 * 60 * 60 * 1000); // Раз на добу
+
         if (this.initialized) return;
 
         if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
@@ -32,6 +46,222 @@ export class NotificationService {
             Logger.success('NotificationService', 'Web Push initialized successfully');
         } catch (error) {
             Logger.error('NotificationService', 'Failed to initialize Web Push', error);
+        }
+    }
+
+    /**
+     * BEST PRACTICE: Check if current time is within user's quiet hours
+     * @param {Object} subscription - Subscription object with quiet_hours_start/end
+     * @returns {boolean} True if in quiet hours (should NOT send)
+     */
+    static isInQuietHours(subscription) {
+        if (!subscription.quiet_hours_start || !subscription.quiet_hours_end) {
+            return false; // Якщо не налаштовані тихі години - дозволяємо
+        }
+
+        try {
+            // Get user's timezone, default to Ukraine
+            const timezone = subscription.timezone || 'Europe/Kiev';
+            const now = new Date();
+
+            // Get current time in user's timezone (HH:MM format)
+            const userTime = now.toLocaleTimeString('en-US', {
+                timeZone: timezone,
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            const [currentHour, currentMinute] = userTime.split(':').map(Number);
+            const [startHour, startMinute] = subscription.quiet_hours_start.split(':').map(Number);
+            const [endHour, endMinute] = subscription.quiet_hours_end.split(':').map(Number);
+
+            const currentMinutes = currentHour * 60 + currentMinute;
+            const startMinutes = startHour * 60 + startMinute;
+            const endMinutes = endHour * 60 + endMinute;
+
+            // Handle case where quiet hours span midnight (e.g., 22:00 - 08:00)
+            if (startMinutes > endMinutes) {
+                return currentMinutes >= startMinutes || currentMinutes < endMinutes;
+            } else {
+                return currentMinutes >= startMinutes && currentMinutes < endMinutes;
+            }
+        } catch (error) {
+            Logger.error('NotificationService', 'Error checking quiet hours', error);
+            return false; // У разі помилки - дозволяємо відправку
+        }
+    }
+
+    /**
+     * BEST PRACTICE: Check if user has reached daily notification limit
+     * @param {number} subscriptionId - Subscription ID
+     * @param {number} maxDaily - Maximum daily notifications allowed
+     * @returns {boolean} True if can send (under limit)
+     */
+    static canSendNotification(subscriptionId, maxDaily) {
+        if (!maxDaily || maxDaily <= 0) return true; // Якщо ліміт не встановлений - дозволяємо
+
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            const count = db.prepare(`
+                SELECT count FROM daily_notification_counts
+                WHERE subscription_id = ? AND date = ?
+            `).get(subscriptionId, today);
+
+            const currentCount = count ? count.count : 0;
+            return currentCount < maxDaily;
+        } catch (error) {
+            Logger.error('NotificationService', 'Error checking daily limit', error);
+            return true; // У разі помилки - дозволяємо відправку
+        }
+    }
+
+    /**
+     * BEST PRACTICE: Increment daily notification counter
+     * @param {number} subscriptionId - Subscription ID
+     */
+    static incrementDailyCount(subscriptionId) {
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            db.prepare(`
+                INSERT INTO daily_notification_counts (subscription_id, date, count)
+                VALUES (?, ?, 1)
+                ON CONFLICT(subscription_id, date) DO UPDATE SET count = count + 1
+            `).run(subscriptionId, today);
+        } catch (error) {
+            Logger.error('NotificationService', 'Error incrementing daily count', error);
+        }
+    }
+
+    /**
+     * BEST PRACTICE: Track notification analytics for monitoring engagement
+     * @param {number} subscriptionId - Subscription ID
+     * @param {string} notificationType - Type of notification
+     * @param {Object} payloadData - Notification payload
+     * @param {boolean} delivered - Whether successfully delivered
+     * @param {Object} error - Error object if failed
+     */
+    static trackAnalytics(subscriptionId, notificationType, payloadData, delivered, error = null) {
+        try {
+            db.prepare(`
+                INSERT INTO notification_analytics
+                (subscription_id, notification_type, notification_title, notification_body, delivered, error_message, http_status_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(
+                subscriptionId,
+                notificationType,
+                payloadData.title || '',
+                payloadData.body || '',
+                delivered ? 1 : 0,
+                error ? error.message : null,
+                error ? error.statusCode : null
+            );
+        } catch (err) {
+            Logger.error('NotificationService', 'Error tracking analytics', err);
+        }
+    }
+
+    /**
+     * BEST PRACTICE: Enrich notification with actions and better content
+     * @param {Object} basePayload - Base notification payload
+     * @param {string} notificationType - Type of notification
+     * @returns {Object} Enhanced payload with actions and better formatting
+     */
+    static enrichNotificationContent(basePayload, notificationType) {
+        const payload = { ...basePayload };
+
+        // Add vibration pattern based on urgency
+        if (notificationType === 'emergency' || notificationType === 'power_off_30min') {
+            payload.vibrate = [200, 100, 200]; // Urgent pattern
+        } else {
+            payload.vibrate = [100, 50, 100]; // Normal pattern
+        }
+
+        // Add badge for notification count
+        payload.badge = '/badge-icon.png';
+
+        // Add actions based on notification type
+        payload.actions = [];
+
+        if (notificationType === 'schedule_change' || notificationType === 'tomorrow_schedule') {
+            payload.actions.push({
+                action: 'view',
+                title: 'Переглянути графік',
+                icon: '/icons/calendar.png'
+            });
+            payload.actions.push({
+                action: 'dismiss',
+                title: 'Закрити',
+                icon: '/icons/close.png'
+            });
+        } else if (notificationType === 'power_off_30min') {
+            payload.actions.push({
+                action: 'view',
+                title: 'Переглянути',
+                icon: '/icons/view.png'
+            });
+            payload.actions.push({
+                action: 'snooze',
+                title: 'Нагадати через 15хв',
+                icon: '/icons/snooze.png'
+            });
+        } else if (notificationType === 'power_on') {
+            payload.actions.push({
+                action: 'view',
+                title: 'Дякую!',
+                icon: '/icons/check.png'
+            });
+        } else if (notificationType === 'emergency') {
+            payload.actions.push({
+                action: 'view',
+                title: 'Деталі',
+                icon: '/icons/info.png'
+            });
+            payload.actions.push({
+                action: 'share',
+                title: 'Поділитися',
+                icon: '/icons/share.png'
+            });
+        }
+
+        // Add requireInteraction for critical notifications
+        if (notificationType === 'power_off_30min' || notificationType === 'emergency') {
+            payload.requireInteraction = true; // User must interact to dismiss
+        }
+
+        return payload;
+    }
+
+    /**
+     * BEST PRACTICE: Send notification with exponential backoff retry
+     * @param {Object} pushSubscription - Push subscription object
+     * @param {string} payload - JSON payload
+     * @param {Object} options - Send options
+     * @param {number} retryCount - Current retry attempt (0-based)
+     * @returns {Promise<void>}
+     */
+    static async sendWithRetry(pushSubscription, payload, options, retryCount = 0) {
+        const maxRetries = 3;
+        const baseDelay = 1000; // 1 second
+
+        try {
+            await webpush.sendNotification(pushSubscription, payload, options);
+        } catch (error) {
+            // Don't retry on permanent failures
+            if (error.statusCode === 410 || error.statusCode === 404 || error.statusCode === 400) {
+                throw error;
+            }
+
+            // Retry on temporary failures (5xx, 429)
+            if (retryCount < maxRetries && (error.statusCode >= 500 || error.statusCode === 429)) {
+                const delay = baseDelay * Math.pow(2, retryCount); // Exponential backoff: 1s, 2s, 4s
+                Logger.warning('NotificationService', `Retry ${retryCount + 1}/${maxRetries} after ${delay}ms (status: ${error.statusCode})`);
+
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return this.sendWithRetry(pushSubscription, payload, options, retryCount + 1);
+            }
+
+            throw error;
         }
     }
 
@@ -154,6 +384,143 @@ export class NotificationService {
         } catch (error) {
             Logger.error('NotificationService', 'Failed to update queue', error);
             return false;
+        }
+    }
+
+    /**
+     * BEST PRACTICE: Update user preferences (quiet hours, limits, timezone, language)
+     * @param {string} endpoint - Subscription endpoint
+     * @param {Object} preferences - Preferences to update
+     * @returns {boolean} Success status
+     */
+    static updateUserPreferences(endpoint, preferences) {
+        try {
+            const updates = [];
+            const params = [];
+
+            if (preferences.quietHoursStart !== undefined) {
+                updates.push('quiet_hours_start = ?');
+                params.push(preferences.quietHoursStart);
+            }
+
+            if (preferences.quietHoursEnd !== undefined) {
+                updates.push('quiet_hours_end = ?');
+                params.push(preferences.quietHoursEnd);
+            }
+
+            if (preferences.maxDailyNotifications !== undefined) {
+                updates.push('max_daily_notifications = ?');
+                params.push(preferences.maxDailyNotifications);
+            }
+
+            if (preferences.timezone !== undefined) {
+                updates.push('timezone = ?');
+                params.push(preferences.timezone);
+            }
+
+            if (preferences.language !== undefined) {
+                updates.push('language = ?');
+                params.push(preferences.language);
+            }
+
+            if (updates.length === 0) {
+                return false;
+            }
+
+            updates.push('updated_at = CURRENT_TIMESTAMP');
+            params.push(endpoint);
+
+            const stmt = db.prepare(`
+                UPDATE push_subscriptions
+                SET ${updates.join(', ')}
+                WHERE endpoint = ?
+            `);
+
+            const result = stmt.run(...params);
+
+            if (result.changes > 0) {
+                Logger.info('NotificationService', `Updated preferences for endpoint: ${endpoint.substring(0, 50)}...`);
+                return true;
+            }
+
+            return false;
+        } catch (error) {
+            Logger.error('NotificationService', 'Failed to update preferences', error);
+            return false;
+        }
+    }
+
+    /**
+     * BEST PRACTICE: Get analytics summary
+     * @param {number} days - Number of days to look back (default 7)
+     * @returns {Object} Analytics summary
+     */
+    static getAnalyticsSummary(days = 7) {
+        try {
+            const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+            // Overall stats
+            const overall = db.prepare(`
+                SELECT
+                    COUNT(*) as total_sent,
+                    SUM(CASE WHEN delivered = 1 THEN 1 ELSE 0 END) as delivered,
+                    SUM(CASE WHEN clicked = 1 THEN 1 ELSE 0 END) as clicked,
+                    SUM(CASE WHEN dismissed = 1 THEN 1 ELSE 0 END) as dismissed
+                FROM notification_analytics
+                WHERE sent_at >= ?
+            `).get(since);
+
+            // By notification type
+            const byType = db.prepare(`
+                SELECT
+                    notification_type,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN delivered = 1 THEN 1 ELSE 0 END) as delivered,
+                    SUM(CASE WHEN clicked = 1 THEN 1 ELSE 0 END) as clicked
+                FROM notification_analytics
+                WHERE sent_at >= ?
+                GROUP BY notification_type
+                ORDER BY total DESC
+            `).all(since);
+
+            // Error breakdown
+            const errors = db.prepare(`
+                SELECT
+                    http_status_code,
+                    COUNT(*) as count,
+                    error_message
+                FROM notification_analytics
+                WHERE sent_at >= ? AND delivered = 0
+                GROUP BY http_status_code, error_message
+                ORDER BY count DESC
+                LIMIT 10
+            `).all(since);
+
+            // Calculate rates
+            const deliveryRate = overall.total_sent > 0
+                ? (overall.delivered / overall.total_sent * 100).toFixed(2)
+                : 0;
+
+            const clickRate = overall.delivered > 0
+                ? (overall.clicked / overall.delivered * 100).toFixed(2)
+                : 0;
+
+            return {
+                period: `Last ${days} days`,
+                overall: {
+                    totalSent: overall.total_sent,
+                    delivered: overall.delivered,
+                    clicked: overall.clicked,
+                    dismissed: overall.dismissed,
+                    deliveryRate: `${deliveryRate}%`,
+                    clickThroughRate: `${clickRate}%`
+                },
+                byType,
+                topErrors: errors
+            };
+        } catch (error) {
+            Logger.error('NotificationService', 'Failed to get analytics', error);
+            return null;
         }
     }
 
@@ -491,10 +858,31 @@ export class NotificationService {
         const deleteStmt = db.prepare('DELETE FROM push_subscriptions WHERE id = ?');
 
         let skippedDuplicates = 0;
+        let skippedQuietHours = 0;
+        let skippedDailyLimit = 0;
 
         const tasks = subscriptions.map(async (sub) => {
+            // BEST PRACTICE: Check quiet hours
+            if (this.isInQuietHours(sub)) {
+                skippedQuietHours++;
+                Logger.debug('NotificationService', `Skipping notification for ${sub.id} (quiet hours)`);
+                return;
+            }
+
+            // BEST PRACTICE: Check daily limit
+            if (!this.canSendNotification(sub.id, sub.max_daily_notifications)) {
+                skippedDailyLimit++;
+                Logger.debug('NotificationService', `Skipping notification for ${sub.id} (daily limit reached)`);
+                return;
+            }
+
             const payload = payloadFactory(sub);
             const payloadData = JSON.parse(payload);
+
+            // BEST PRACTICE: Enrich notification with actions and better content
+            const notificationType = payloadData.data?.type || 'unknown';
+            const enrichedPayload = this.enrichNotificationContent(payloadData, notificationType);
+            const enrichedPayloadStr = JSON.stringify(enrichedPayload);
 
             // Dedupe: перевіряємо чи не відправляли вже це сповіщення цьому endpoint
             const dedupeKey = `${payloadData.data?.type || 'unknown'}:${payloadData.data?.queue || ''}:${payloadData.data?.url || payloadData.title}`;
@@ -521,6 +909,9 @@ export class NotificationService {
                 }
             };
 
+            let delivered = false;
+            let sendError = null;
+
             try {
                 // Build options for web-push
                 const sendOptions = { TTL: ttl, urgency };
@@ -528,9 +919,16 @@ export class NotificationService {
                     sendOptions.topic = topic;
                 }
 
-                await webpush.sendNotification(pushSubscription, payload, sendOptions);
+                // BEST PRACTICE: Use retry with exponential backoff
+                await this.sendWithRetry(pushSubscription, enrichedPayloadStr, sendOptions);
+                delivered = true;
                 updateSuccessStmt.run(sub.id);
+
+                // BEST PRACTICE: Increment daily counter
+                this.incrementDailyCount(sub.id);
             } catch (error) {
+                sendError = error;
+
                 // Handle permanent failures (subscription expired/invalid)
                 if (error.statusCode === 410 || error.statusCode === 404) {
                     deleteStmt.run(sub.id);
@@ -551,13 +949,22 @@ export class NotificationService {
                     incrementFailureStmt.run(sub.id);
                     Logger.error('NotificationService', `Failed to send to ${sub.id} (${error.statusCode}):`, error.message);
                 }
+            } finally {
+                // BEST PRACTICE: Track analytics for all attempts
+                this.trackAnalytics(sub.id, notificationType, enrichedPayload, delivered, sendError);
             }
         });
 
         await Promise.allSettled(tasks);
 
-        if (skippedDuplicates > 0) {
-            Logger.info('NotificationService', `Skipped ${skippedDuplicates} duplicate notification(s)`);
+        // BEST PRACTICE: Log comprehensive statistics
+        const stats = [];
+        if (skippedDuplicates > 0) stats.push(`${skippedDuplicates} duplicates`);
+        if (skippedQuietHours > 0) stats.push(`${skippedQuietHours} quiet hours`);
+        if (skippedDailyLimit > 0) stats.push(`${skippedDailyLimit} daily limit`);
+
+        if (stats.length > 0) {
+            Logger.info('NotificationService', `Skipped: ${stats.join(', ')}`);
         }
     }
 }
