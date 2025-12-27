@@ -65,23 +65,15 @@ function cancelAllJobs() {
 /**
  * Розрахувати час для сповіщення "за 30 хв до відключення"
  * ВАЖЛИВО: startTime - це час в Київському часовому поясі (Europe/Kyiv, UTC+2)
+ * @param {string} date - Дата у форматі YYYY-MM-DD (для якої плануємо сповіщення)
+ * @param {string} startTime - Час початку відключення (HH:mm)
  */
-function calculateWarningTime(startTime) {
+function calculateWarningTime(date, startTime) {
   const [hours, minutes] = startTime.split(':').map(Number);
-
-  // Get current date/time in Kyiv timezone using Intl.DateTimeFormat
-  const now = new Date();
-  const kyivFormatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Kyiv',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
-  const kyivDateStr = kyivFormatter.format(now); // "2025-12-20"
 
   // Build ISO string in Kyiv timezone: "2025-12-20T21:00:00+02:00"
   // Ukraine permanently uses UTC+2 (no DST as of 2025)
-  const kyivTimeStr = `${kyivDateStr}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00+02:00`;
+  const kyivTimeStr = `${date}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00+02:00`;
 
   // Parse as UTC Date object
   const warningDate = new Date(kyivTimeStr);
@@ -95,23 +87,32 @@ function calculateWarningTime(startTime) {
 /**
  * Розрахувати час для сповіщення "світло увімкнулось"
  * ВАЖЛИВО: endTime - це час в Київському часовому поясі (Europe/Kyiv, UTC+2)
+ * ВАЖЛИВО: Якщо endTime <= startTime, то це наступний день (наприклад, 19:30-00:00)
+ * @param {string} date - Дата у форматі YYYY-MM-DD (для якої плануємо сповіщення)
+ * @param {string} endTime - Час кінця відключення (HH:mm)
+ * @param {string} startTime - Час початку відключення (HH:mm)
  */
-function calculatePowerOnTime(endTime) {
+function calculatePowerOnTime(date, endTime, startTime) {
   const [hours, minutes] = endTime.split(':').map(Number);
+  const [startHours, startMinutes] = startTime.split(':').map(Number);
 
-  // Get current date/time in Kyiv timezone using Intl.DateTimeFormat
-  const now = new Date();
-  const kyivFormatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Kyiv',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
-  const kyivDateStr = kyivFormatter.format(now); // "2025-12-20"
+  let targetDate = date;
 
-  // Build ISO string in Kyiv timezone: "2025-12-20T17:00:00+02:00"
+  // Перевіряємо чи endTime на наступний день
+  // Якщо endTime <= startTime (наприклад, 00:00 <= 19:30), то це наступний день
+  const endMinutesTotal = hours * 60 + minutes;
+  const startMinutesTotal = startHours * 60 + startMinutes;
+
+  if (endMinutesTotal <= startMinutesTotal) {
+    // endTime на наступний день - додаємо 1 день до дати
+    const dateObj = new Date(date + 'T00:00:00');
+    dateObj.setDate(dateObj.getDate() + 1);
+    targetDate = dateObj.toISOString().split('T')[0];
+  }
+
+  // Build ISO string in Kyiv timezone: "2025-12-20T00:00:00+02:00"
   // Ukraine permanently uses UTC+2 (no DST as of 2025)
-  const kyivTimeStr = `${kyivDateStr}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00+02:00`;
+  const kyivTimeStr = `${targetDate}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00+02:00`;
 
   // Parse as UTC Date object
   const powerOnDate = new Date(kyivTimeStr);
@@ -123,7 +124,7 @@ function calculatePowerOnTime(endTime) {
  * Створити заплановане завдання для попередження про відключення
  */
 function scheduleWarningNotification(date, queue, startTime, endTime) {
-  const warningTime = calculateWarningTime(startTime);
+  const warningTime = calculateWarningTime(date, startTime);
   const now = new Date();
 
   // Якщо час вже минув - пропускаємо
@@ -166,8 +167,8 @@ function scheduleWarningNotification(date, queue, startTime, endTime) {
 /**
  * Створити заплановане завдання для сповіщення про увімкнення
  */
-function schedulePowerOnNotification(date, queue, endTime) {
-  const powerOnTime = calculatePowerOnTime(endTime);
+function schedulePowerOnNotification(date, queue, startTime, endTime) {
+  const powerOnTime = calculatePowerOnTime(date, endTime, startTime);
   const now = new Date();
 
   // Якщо час вже минув - пропускаємо
@@ -243,7 +244,7 @@ export function rescheduleNotifications(date) {
     if (warningJob) scheduledCount++;
 
     // Плануємо сповіщення про увімкнення
-    const powerOnJob = schedulePowerOnNotification(date, queue, end_time);
+    const powerOnJob = schedulePowerOnNotification(date, queue, start_time, end_time);
     if (powerOnJob) scheduledCount++;
   }
 
