@@ -336,4 +336,132 @@ router.get('/schedule-stats', requireAdminKey, (_req, res) => {
     res.json({ success: true, ...stats });
 });
 
+/**
+ * @swagger
+ * /api/notifications/preferences:
+ *   post:
+ *     summary: Update user notification preferences (quiet hours, limits, timezone, language)
+ *     tags: [Notifications]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - endpoint
+ *             properties:
+ *               endpoint:
+ *                 type: string
+ *                 description: Push subscription endpoint
+ *               quietHoursStart:
+ *                 type: string
+ *                 description: Start of quiet hours (HH:MM format, e.g., "22:00")
+ *                 example: "22:00"
+ *               quietHoursEnd:
+ *                 type: string
+ *                 description: End of quiet hours (HH:MM format, e.g., "08:00")
+ *                 example: "08:00"
+ *               maxDailyNotifications:
+ *                 type: integer
+ *                 description: Maximum notifications per day (0 = unlimited)
+ *                 example: 10
+ *               timezone:
+ *                 type: string
+ *                 description: User's timezone (IANA format)
+ *                 example: "Europe/Kiev"
+ *               language:
+ *                 type: string
+ *                 description: Preferred language code
+ *                 example: "uk"
+ *     responses:
+ *       200:
+ *         description: Preferences updated successfully
+ */
+router.post('/preferences', validateEndpointBody, asyncHandler(async (req, res) => {
+    const { endpoint, quietHoursStart, quietHoursEnd, maxDailyNotifications, timezone, language } = req.body;
+
+    // Validate quiet hours format if provided
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (quietHoursStart && !timeRegex.test(quietHoursStart)) {
+        return res.status(400).json({
+            success: false,
+            message: 'quietHoursStart must be in HH:MM format (e.g., "22:00")'
+        });
+    }
+    if (quietHoursEnd && !timeRegex.test(quietHoursEnd)) {
+        return res.status(400).json({
+            success: false,
+            message: 'quietHoursEnd must be in HH:MM format (e.g., "08:00")'
+        });
+    }
+
+    const preferences = {};
+    if (quietHoursStart !== undefined) preferences.quietHoursStart = quietHoursStart;
+    if (quietHoursEnd !== undefined) preferences.quietHoursEnd = quietHoursEnd;
+    if (maxDailyNotifications !== undefined) preferences.maxDailyNotifications = maxDailyNotifications;
+    if (timezone !== undefined) preferences.timezone = timezone;
+    if (language !== undefined) preferences.language = language;
+
+    const success = NotificationService.updateUserPreferences(endpoint, preferences);
+
+    if (success) {
+        res.json({
+            success: true,
+            message: 'Preferences updated successfully',
+            preferences
+        });
+    } else {
+        res.status(404).json({
+            success: false,
+            message: 'Subscription not found or no changes made'
+        });
+    }
+}));
+
+/**
+ * @swagger
+ * /api/notifications/analytics:
+ *   get:
+ *     summary: Get notification analytics and engagement metrics
+ *     tags: [Notifications]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema:
+ *           type: integer
+ *           default: 7
+ *         description: Number of days to look back (default 7)
+ *     responses:
+ *       200:
+ *         description: Analytics summary including delivery rates, click-through rates, and error breakdown
+ */
+router.get('/analytics', requireAdminKey, asyncHandler(async (req, res) => {
+    const days = parseInt(req.query.days) || 7;
+
+    if (days < 1 || days > 365) {
+        return res.status(400).json({
+            success: false,
+            message: 'Days parameter must be between 1 and 365'
+        });
+    }
+
+    const analytics = NotificationService.getAnalyticsSummary(days);
+
+    if (analytics) {
+        res.json({
+            success: true,
+            analytics
+        });
+    } else {
+        res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve analytics'
+        });
+    }
+}));
+
 export default router;
