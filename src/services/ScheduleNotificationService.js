@@ -88,22 +88,31 @@ function calculateWarningTime(date, startTime) {
  * Розрахувати час для сповіщення "світло увімкнулось"
  * ВАЖЛИВО: endTime - це час в Київському часовому поясі (Europe/Kyiv, UTC+2)
  * ВАЖЛИВО: Якщо endTime <= startTime, то це наступний день (наприклад, 19:30-00:00)
+ * ВАЖЛИВО: Час "24:00" означає північ наступного дня (те саме що 00:00 наступного дня)
  * @param {string} date - Дата у форматі YYYY-MM-DD (для якої плануємо сповіщення)
- * @param {string} endTime - Час кінця відключення (HH:mm)
+ * @param {string} endTime - Час кінця відключення (HH:mm або 24:00)
  * @param {string} startTime - Час початку відключення (HH:mm)
  */
 function calculatePowerOnTime(date, endTime, startTime) {
-  const [hours, minutes] = endTime.split(':').map(Number);
+  let [hours, minutes] = endTime.split(':').map(Number);
   const [startHours, startMinutes] = startTime.split(':').map(Number);
 
   let targetDate = date;
+  let needsNextDay = false;
+
+  // Спеціальний випадок: 24:00 означає 00:00 наступного дня
+  if (hours === 24 && minutes === 0) {
+    hours = 0;
+    minutes = 0;
+    needsNextDay = true;
+  }
 
   // Перевіряємо чи endTime на наступний день
   // Якщо endTime <= startTime (наприклад, 00:00 <= 19:30), то це наступний день
   const endMinutesTotal = hours * 60 + minutes;
   const startMinutesTotal = startHours * 60 + startMinutes;
 
-  if (endMinutesTotal <= startMinutesTotal) {
+  if (needsNextDay || endMinutesTotal <= startMinutesTotal) {
     // endTime на наступний день - додаємо 1 день до дати
     const dateObj = new Date(date + 'T00:00:00');
     dateObj.setDate(dateObj.getDate() + 1);
