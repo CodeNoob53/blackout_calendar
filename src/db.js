@@ -135,4 +135,79 @@ export function initDatabase() {
     db.exec(`ALTER TABLE push_subscriptions ADD COLUMN notification_types TEXT DEFAULT '["all","schedule_change","tomorrow_schedule"]'`);
     Logger.success('Database', 'Migration: Added notification_types to push_subscriptions');
   }
+
+  // MIGRATION: Додаємо додаткові налаштування згідно з best practices
+  const hasQuietHoursStart = pushSubsInfo.some(col => col.name === 'quiet_hours_start');
+  const hasQuietHoursEnd = pushSubsInfo.some(col => col.name === 'quiet_hours_end');
+  const hasMaxDailyNotifications = pushSubsInfo.some(col => col.name === 'max_daily_notifications');
+  const hasTimezone = pushSubsInfo.some(col => col.name === 'timezone');
+  const hasLanguage = pushSubsInfo.some(col => col.name === 'language');
+
+  if (!hasQuietHoursStart) {
+    db.exec(`ALTER TABLE push_subscriptions ADD COLUMN quiet_hours_start TEXT`);
+    Logger.success('Database', 'Migration: Added quiet_hours_start to push_subscriptions');
+  }
+
+  if (!hasQuietHoursEnd) {
+    db.exec(`ALTER TABLE push_subscriptions ADD COLUMN quiet_hours_end TEXT`);
+    Logger.success('Database', 'Migration: Added quiet_hours_end to push_subscriptions');
+  }
+
+  if (!hasMaxDailyNotifications) {
+    db.exec(`ALTER TABLE push_subscriptions ADD COLUMN max_daily_notifications INTEGER DEFAULT 10`);
+    Logger.success('Database', 'Migration: Added max_daily_notifications to push_subscriptions');
+  }
+
+  if (!hasTimezone) {
+    db.exec(`ALTER TABLE push_subscriptions ADD COLUMN timezone TEXT DEFAULT 'Europe/Kiev'`);
+    Logger.success('Database', 'Migration: Added timezone to push_subscriptions');
+  }
+
+  if (!hasLanguage) {
+    db.exec(`ALTER TABLE push_subscriptions ADD COLUMN language TEXT DEFAULT 'uk'`);
+    Logger.success('Database', 'Migration: Added language to push_subscriptions');
+  }
+
+  // MIGRATION: Створюємо таблицю аналітики для відстеження ефективності
+  if (!tableNames.includes('notification_analytics')) {
+    db.exec(`
+      CREATE TABLE notification_analytics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subscription_id INTEGER,
+        notification_type TEXT NOT NULL,
+        notification_title TEXT,
+        notification_body TEXT,
+        sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        delivered BOOLEAN DEFAULT 0,
+        clicked BOOLEAN DEFAULT 0,
+        dismissed BOOLEAN DEFAULT 0,
+        clicked_at DATETIME,
+        dismissed_at DATETIME,
+        error_message TEXT,
+        http_status_code INTEGER,
+        FOREIGN KEY (subscription_id) REFERENCES push_subscriptions(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_analytics_sent_at ON notification_analytics(sent_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_analytics_subscription ON notification_analytics(subscription_id);
+      CREATE INDEX IF NOT EXISTS idx_analytics_type ON notification_analytics(notification_type);
+    `);
+    Logger.success('Database', 'Migration: Created notification_analytics table');
+  }
+
+  // MIGRATION: Додаємо таблицю для підрахунку денних лімітів
+  if (!tableNames.includes('daily_notification_counts')) {
+    db.exec(`
+      CREATE TABLE daily_notification_counts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subscription_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        count INTEGER DEFAULT 0,
+        UNIQUE(subscription_id, date),
+        FOREIGN KEY (subscription_id) REFERENCES push_subscriptions(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_daily_counts_date ON daily_notification_counts(date);
+      CREATE INDEX IF NOT EXISTS idx_daily_counts_sub ON daily_notification_counts(subscription_id, date);
+    `);
+    Logger.success('Database', 'Migration: Created daily_notification_counts table');
+  }
 }
