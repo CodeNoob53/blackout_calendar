@@ -11,6 +11,7 @@ import { db } from '../db.js';
 import { fetchTelegramUpdates, isEmergencyBlackoutMessage, parseEmergencyBlackoutMessage } from '../scraper/telegramScraper.js';
 import { NotificationService } from './NotificationService.js';
 import Logger from '../utils/logger.js';
+import { getKyivDate, addDays } from '../utils/dateUtils.js';
 
 /**
  * Створює таблицю для зберігання ГАВ
@@ -79,7 +80,7 @@ export function saveEmergencyBlackout(emergencyData, messageId, messageDate) {
  * Отримує всі активні ГАВ (сьогодні і майбутні)
  */
 export function getActiveEmergencyBlackouts() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getKyivDate();
 
   const rows = db.prepare(`
     SELECT
@@ -233,9 +234,8 @@ async function sendEmergencyNotification(emergencyId, emergencyData) {
  * Видаляє старі ГАВ (старіші за 30 днів)
  */
 export function cleanupOldEmergencyBlackouts() {
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const cutoffDate = thirtyDaysAgo.toISOString().split('T')[0];
+  const today = getKyivDate();
+  const cutoffDate = addDays(today, -30);
 
   const result = db.prepare(`
     DELETE FROM emergency_blackouts

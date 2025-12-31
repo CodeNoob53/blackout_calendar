@@ -16,23 +16,20 @@ import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
 import Logger from "../utils/logger.js";
 import { NotificationService } from "./NotificationService.js";
 import { rescheduleNotifications } from "./ScheduleNotificationService.js";
+import { getKyivDate, addDays } from '../utils/dateUtils.js';
 
 /**
  * Фільтрує лайнографіки (графіки з датою меншою за сьогодні)
  */
 function filterLineographs(updates, skipDateFilter = false) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().split('T')[0];
+  const today = getKyivDate();
 
   return updates.filter(update => {
     if (!update.parsed.date) return false;
 
     // Фільтруємо графіки старші за 7 днів (тільки для orchestrator, не для bootstrap)
     if (!skipDateFilter) {
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const minDateStr = sevenDaysAgo.toISOString().split('T')[0];
+      const minDateStr = addDays(today, -7);
 
       if (update.parsed.date < minDateStr) {
         Logger.debug('SyncEngine', `Filtered old schedule: date=${update.parsed.date} (min=${minDateStr})`);
@@ -404,17 +401,15 @@ function writeSyncedData(date, timeline, sendNotifications = true) {
 
   if (sendNotifications) {
     // Визначаємо чи це сьогодні або завтра
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    const today = getKyivDate();
+    const tomorrow = addDays(today, 1);
 
     // Логіка відправки push:
     // - Для СЬОГОДНІ: надсилаємо ТІЛЬКИ оновлення (change_type='updated')
     // - Для ЗАВТРА+: надсилаємо І нові графіки (change_type='new') І оновлення (change_type='updated')
     const shouldSendPush =
       (date === today && metadataChangeType === 'updated') ||
-      (date >= tomorrowStr); // Для завтра+ надсилаємо завжди (і 'new' і 'updated')
+      (date >= tomorrow); // Для завтра+ надсилаємо завжди (і 'new' і 'updated')
 
     if (shouldSendPush) {
       Logger.info('SyncEngine', `📨 Sending push notification: date=${date}, type=${metadataChangeType}`);
@@ -550,9 +545,8 @@ export async function orchestrator() {
     ]);
 
     // 2. Фільтруємо тільки останні 7 днів
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+    const today = getKyivDate();
+    const sevenDaysAgoStr = addDays(today, -7);
 
     const recentTelegram = telegramUpdates.filter(u => u.parsed.date >= sevenDaysAgoStr);
     const recentZoe = zoeUpdates.filter(u => u.parsed.date >= sevenDaysAgoStr);

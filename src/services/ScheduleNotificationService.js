@@ -13,6 +13,7 @@ import schedule from 'node-schedule';
 import { db } from '../db.js';
 import { NotificationService } from './NotificationService.js';
 import Logger from '../utils/logger.js';
+import { getKyivDate, addDays } from '../utils/dateUtils.js';
 
 /**
  * Зберігаємо всі заплановані завдання
@@ -114,9 +115,7 @@ function calculatePowerOnTime(date, endTime, startTime) {
 
   if (needsNextDay || endMinutesTotal <= startMinutesTotal) {
     // endTime на наступний день - додаємо 1 день до дати
-    const dateObj = new Date(date + 'T00:00:00');
-    dateObj.setDate(dateObj.getDate() + 1);
-    targetDate = dateObj.toISOString().split('T')[0];
+    targetDate = addDays(date, 1);
   }
 
   // Build ISO string in Kyiv timezone: "2025-12-20T00:00:00+02:00"
@@ -267,16 +266,14 @@ export function rescheduleNotifications(date) {
 export function scheduleUpcomingNotifications() {
   Logger.info('ScheduleNotificationService', 'Scheduling upcoming notifications...');
 
-  const today = new Date().toISOString().split('T')[0];
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  const today = getKyivDate();
+  const tomorrow = addDays(today, 1);
 
   // Плануємо для сьогодні
   rescheduleNotifications(today);
 
   // Плануємо для завтра
-  rescheduleNotifications(tomorrowStr);
+  rescheduleNotifications(tomorrow);
 
   Logger.success('ScheduleNotificationService', 'Upcoming notifications scheduled');
 }
@@ -291,16 +288,13 @@ function scheduleDailyUpdate() {
     Logger.info('ScheduleNotificationService', 'Daily update: cleaning old jobs and scheduling tomorrow...');
 
     // Очищаємо завдання для вчорашнього дня
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
-    cancelJobsForDate(yesterdayStr);
+    const today = getKyivDate();
+    const yesterday = addDays(today, -1);
+    cancelJobsForDate(yesterday);
 
     // Плануємо для завтра
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
-    rescheduleNotifications(tomorrowStr);
+    const tomorrow = addDays(today, 1);
+    rescheduleNotifications(tomorrow);
 
     Logger.success('ScheduleNotificationService', 'Daily update completed');
   });

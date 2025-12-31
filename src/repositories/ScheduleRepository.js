@@ -6,6 +6,7 @@
 
 import { db } from '../db.js';
 import Logger from '../utils/logger.js';
+import { getKyivDate, addDays } from '../utils/dateUtils.js';
 
 export class ScheduleRepository {
   /**
@@ -43,7 +44,7 @@ export class ScheduleRepository {
    * @returns {string|null} Дата або null
    */
   static findLatestDate() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getKyivDate();
 
     // Спочатку перевіряємо сьогодні
     const todayStmt = db.prepare(`
@@ -96,7 +97,7 @@ export class ScheduleRepository {
    * @returns {Object} {date, available, count}
    */
   static checkTodayAvailability() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getKyivDate();
     const stmt = db.prepare(`
       SELECT COUNT(*) as count FROM outages WHERE date = ?
     `);
@@ -143,10 +144,8 @@ export class ScheduleRepository {
    */
   static findNewSchedules(hoursAgo = 24) {
     const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
-    const today = new Date().toISOString().split('T')[0];
-
-    // Завтра = сьогодні + 1 день
-    const tomorrow = new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split('T')[0];
+    const today = getKyivDate();
+    const tomorrow = addDays(today, 1);
 
     const stmt = db.prepare(`
       SELECT * FROM schedule_metadata
@@ -167,7 +166,7 @@ export class ScheduleRepository {
    */
   static findUpdatedSchedules(hoursAgo = 24) {
     const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getKyivDate();
 
     Logger.debug('ScheduleRepository', `Finding updates for ${today} since ${since}`);
 
