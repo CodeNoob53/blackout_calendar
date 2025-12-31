@@ -16,17 +16,25 @@ import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
 import Logger from "../utils/logger.js";
 import { NotificationService } from "./NotificationService.js";
 import { rescheduleNotifications } from "./ScheduleNotificationService.js";
+import { getKyivDate, addDays } from "../utils/dateUtils.js";
 
 /**
  * Фільтрує лайнографіки (графіки з датою меншою за сьогодні)
  */
 function filterLineographs(updates, skipDateFilter = false) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().split('T')[0];
-
   return updates.filter(update => {
     if (!update.parsed.date) return false;
+
+    // ВАЖЛИВО: Використовуємо getKyivDate() для коректного порівняння з локальною датою
+    const todayStr = getKyivDate();
+
+    // Якщо дата графіку менша за сьогоднішню - це лайнографік
+    // Але якщо це вчорашній графік, який прийшов сьогодні вночі (до 03:00) - це може бути ок?
+    // Ні, filterLineographs має відсікати все що < today
+    if (update.parsed.date < todayStr) {
+      // Logger.debug('SyncEngine', `Filtered past schedule: date=${update.parsed.date} (today=${todayStr})`);
+      return false;
+    }
 
     // Фільтруємо графіки старші за 7 днів (тільки для orchestrator, не для bootstrap)
     if (!skipDateFilter) {
@@ -403,18 +411,16 @@ function writeSyncedData(date, timeline, sendNotifications = true) {
   // 3. (для сьогодні - ТІЛЬКИ оновлення) АБО (для завтра+ - нові або оновлені графіки)
 
   if (sendNotifications) {
-    // Визначаємо чи це сьогодні або завтра
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    // Визначаємо сьогодні та завтра за Києвом
+    const today = getKyivDate();
+    const tomorrow = addDays(today, 1);
 
     // Логіка відправки push:
     // - Для СЬОГОДНІ: надсилаємо ТІЛЬКИ оновлення (change_type='updated')
     // - Для ЗАВТРА+: надсилаємо І нові графіки (change_type='new') І оновлення (change_type='updated')
     const shouldSendPush =
       (date === today && metadataChangeType === 'updated') ||
-      (date >= tomorrowStr); // Для завтра+ надсилаємо завжди (і 'new' і 'updated')
+      (date >= tomorrow); // Для завтра+ надсилаємо завжди (і 'new' і 'updated')
 
     if (shouldSendPush) {
       Logger.info('SyncEngine', `📨 Sending push notification: date=${date}, type=${metadataChangeType}`);
@@ -426,7 +432,8 @@ function writeSyncedData(date, timeline, sendNotifications = true) {
     }
 
     // Перепланувати автоматичні сповіщення
-    if (date === today || date === tomorrowStr) {
+    // Плануємо для будь-якої дати, яка є сьогодні або в майбутньому
+    if (date >= today) {
       try {
         rescheduleNotifications(date);
       } catch (err) {

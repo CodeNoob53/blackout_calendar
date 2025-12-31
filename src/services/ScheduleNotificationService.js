@@ -13,6 +13,7 @@ import schedule from 'node-schedule';
 import { db } from '../db.js';
 import { NotificationService } from './NotificationService.js';
 import Logger from '../utils/logger.js';
+import { getKyivDate, addDays } from '../utils/dateUtils.js';
 
 /**
  * Зберігаємо всі заплановані завдання
@@ -267,16 +268,14 @@ export function rescheduleNotifications(date) {
 export function scheduleUpcomingNotifications() {
   Logger.info('ScheduleNotificationService', 'Scheduling upcoming notifications...');
 
-  const today = new Date().toISOString().split('T')[0];
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  const today = getKyivDate();
+  const tomorrow = addDays(today, 1);
 
   // Плануємо для сьогодні
   rescheduleNotifications(today);
 
   // Плануємо для завтра
-  rescheduleNotifications(tomorrowStr);
+  rescheduleNotifications(tomorrow);
 
   Logger.success('ScheduleNotificationService', 'Upcoming notifications scheduled');
 }
@@ -290,17 +289,18 @@ function scheduleDailyUpdate() {
   const dailyJob = schedule.scheduleJob('1 0 * * *', () => {
     Logger.info('ScheduleNotificationService', 'Daily update: cleaning old jobs and scheduling tomorrow...');
 
+    const today = getKyivDate();
+    
     // Очищаємо завдання для вчорашнього дня
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
-    cancelJobsForDate(yesterdayStr);
+    const yesterday = addDays(today, -1);
+    cancelJobsForDate(yesterday);
 
     // Плануємо для завтра
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
-    rescheduleNotifications(tomorrowStr);
+    const tomorrow = addDays(today, 1);
+    rescheduleNotifications(tomorrow);
+
+    // FIX: Також на всяк випадок переплануємо сьогодні, щоб переконатися що все актуально
+    rescheduleNotifications(today);
 
     Logger.success('ScheduleNotificationService', 'Daily update completed');
   });
