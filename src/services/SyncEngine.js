@@ -38,9 +38,7 @@ function filterLineographs(updates, skipDateFilter = false) {
 
     // Фільтруємо графіки старші за 7 днів (тільки для orchestrator, не для bootstrap)
     if (!skipDateFilter) {
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const minDateStr = sevenDaysAgo.toISOString().split('T')[0];
+      const minDateStr = addDays(todayStr, -7);
 
       if (update.parsed.date < minDateStr) {
         Logger.debug('SyncEngine', `Filtered old schedule: date=${update.parsed.date} (min=${minDateStr})`);
@@ -557,9 +555,8 @@ export async function orchestrator() {
     ]);
 
     // 2. Фільтруємо тільки останні 7 днів
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+    const today = getKyivDate();
+    const sevenDaysAgoStr = addDays(today, -7);
 
     const recentTelegram = telegramUpdates.filter(u => u.parsed.date >= sevenDaysAgoStr);
     const recentZoe = zoeUpdates.filter(u => u.parsed.date >= sevenDaysAgoStr);

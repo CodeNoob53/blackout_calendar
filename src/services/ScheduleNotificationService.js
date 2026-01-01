@@ -115,9 +115,7 @@ function calculatePowerOnTime(date, endTime, startTime) {
 
   if (needsNextDay || endMinutesTotal <= startMinutesTotal) {
     // endTime на наступний день - додаємо 1 день до дати
-    const dateObj = new Date(date + 'T00:00:00');
-    dateObj.setDate(dateObj.getDate() + 1);
-    targetDate = dateObj.toISOString().split('T')[0];
+    targetDate = addDays(date, 1);
   }
 
   // Build ISO string in Kyiv timezone: "2025-12-20T00:00:00+02:00"
@@ -290,7 +288,7 @@ function scheduleDailyUpdate() {
     Logger.info('ScheduleNotificationService', 'Daily update: cleaning old jobs and scheduling tomorrow...');
 
     const today = getKyivDate();
-    
+
     // Очищаємо завдання для вчорашнього дня
     const yesterday = addDays(today, -1);
     cancelJobsForDate(yesterday);

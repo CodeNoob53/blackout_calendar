@@ -1,26 +1,23 @@
 /**
- * Utilities for Date manipulation in Kyiv timezone (UTC+2 / UTC+3)
- * Ukraine standard time is UTC+2.
- * Currently handling assuming permanent UTC+2 as per project context,
- * but using Intl for robustness where possible.
+ * Utilities for Date manipulation in Kyiv timezone (UTC+2)
+ * Україна постійно використовує UTC+2 (без переходу на літній час з 2011 року)
  */
 
 /**
- * Returns the current date in Kyiv timezone as YYYY-MM-DD string
- * @returns {string} Date string
+ * Повертає поточну дату в київському часі у форматі YYYY-MM-DD
+ * @returns {string} Дата у форматі YYYY-MM-DD
  */
 export function getKyivDate() {
   return getKyivDateFor(new Date());
 }
 
 /**
- * Returns the date for a specific Date object in Kyiv timezone as YYYY-MM-DD string
- * @param {Date} date
- * @returns {string} Date string
+ * Конвертує Date об'єкт в київську дату у форматі YYYY-MM-DD
+ * @param {Date} date - Date об'єкт
+ * @returns {string} Дата у форматі YYYY-MM-DD
  */
 export function getKyivDateFor(date) {
-  // Use Sweden locale as it consistently uses YYYY-MM-DD format
-  // or use 'en-CA' (Canadian English) which is YYYY-MM-DD
+  // Використовуємо 'en-CA' locale який дає формат YYYY-MM-DD
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Kyiv',
     year: 'numeric',
@@ -31,7 +28,8 @@ export function getKyivDateFor(date) {
 }
 
 /**
- * Returns detailed current time components in Kyiv timezone
+ * Повертає компоненти поточного часу в київському часовому поясі
+ * @returns {Object} {hours, minutes, seconds}
  */
 export function getKyivTimeComponents() {
   const now = new Date();
@@ -42,38 +40,27 @@ export function getKyivTimeComponents() {
     minute: '2-digit',
     second: '2-digit'
   });
-  
+
   const [hours, minutes, seconds] = formatter.format(now).split(':').map(Number);
   return { hours, minutes, seconds };
 }
 
 /**
- * Adds days to a YYYY-MM-DD string
- * @param {string} dateStr - YYYY-MM-DD
- * @param {number} days - Number of days to add
- * @returns {string} New date in YYYY-MM-DD
+ * Додає/віднімає дні від дати у форматі YYYY-MM-DD
+ * @param {string} dateStr - Дата у форматі YYYY-MM-DD
+ * @param {number} days - Кількість днів (може бути від'ємною)
+ * @returns {string} Нова дата у форматі YYYY-MM-DD
  */
 export function addDays(dateStr, days) {
-  const date = new Date(dateStr);
+  // Парсимо дату як локальну (не UTC) щоб уникнути зсувів
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day); // Місяці з 0
   date.setDate(date.getDate() + days);
-  return new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).format(date);
-  // Note: Date() constructor parses "YYYY-MM-DD" as UTC usually, 
-  // but we just need to add days, so it's safe for simple arithmetic 
-  // as long as we don't cross DST boundaries weirdly in UTC. 
-  // However, simple string manipulation or robust library is better.
-  // Given we are sticking to vanilla JS:
-  
-  // Safe approach for "YYYY-MM-DD" addition without timezone shifts:
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const safeDate = new Date(y, m - 1, d); // Local time 00:00
-  safeDate.setDate(safeDate.getDate() + days);
-  
-  const year = safeDate.getFullYear();
-  const month = String(safeDate.getMonth() + 1).padStart(2, '0');
-  const day = String(safeDate.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+
+  // Форматуємо назад в YYYY-MM-DD
+  const newYear = date.getFullYear();
+  const newMonth = String(date.getMonth() + 1).padStart(2, '0');
+  const newDay = String(date.getDate()).padStart(2, '0');
+
+  return `${newYear}-${newMonth}-${newDay}`;
 }
