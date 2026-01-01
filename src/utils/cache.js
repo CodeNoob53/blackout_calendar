@@ -101,3 +101,4 @@ class Cache {
 // Експортуємо singleton instance
 export default new Cache();
 
+

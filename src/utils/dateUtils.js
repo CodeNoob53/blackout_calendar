@@ -19,12 +19,30 @@ export function getKyivDate() {
 export function getKyivDateFor(date) {
   // Використовуємо 'en-CA' locale який дає формат YYYY-MM-DD
   const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Kiev',
+    timeZone: 'Europe/Kyiv',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
   });
   return formatter.format(date);
+}
+
+/**
+ * Повертає компоненти поточного часу в київському часовому поясі
+ * @returns {Object} {hours, minutes, seconds}
+ */
+export function getKyivTimeComponents() {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Kyiv',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+
+  const [hours, minutes, seconds] = formatter.format(now).split(':').map(Number);
+  return { hours, minutes, seconds };
 }
 
 /**

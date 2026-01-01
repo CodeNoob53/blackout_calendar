@@ -287,14 +287,18 @@ function scheduleDailyUpdate() {
   const dailyJob = schedule.scheduleJob('1 0 * * *', () => {
     Logger.info('ScheduleNotificationService', 'Daily update: cleaning old jobs and scheduling tomorrow...');
 
-    // Очищаємо завдання для вчорашнього дня
     const today = getKyivDate();
+
+    // Очищаємо завдання для вчорашнього дня
     const yesterday = addDays(today, -1);
     cancelJobsForDate(yesterday);
 
     // Плануємо для завтра
     const tomorrow = addDays(today, 1);
     rescheduleNotifications(tomorrow);
+
+    // FIX: Також на всяк випадок переплануємо сьогодні, щоб переконатися що все актуально
+    rescheduleNotifications(today);
 
     Logger.success('ScheduleNotificationService', 'Daily update completed');
   });
