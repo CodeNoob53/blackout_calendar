@@ -257,6 +257,9 @@ function writeSyncedData(date, timeline, sendNotifications = true) {
 
   Logger.debug('SyncEngine', `Checking ${date}: existingMetadata=${existingMetadata ? 'EXISTS' : 'NULL'}`);
 
+  let changedQueues = [];
+  let isContentChanged = false;
+
   if (existingMetadata) {
     // Отримуємо існуючі outages для порівняння
     const existingOutages = db.prepare('SELECT queue, start_time, end_time FROM outages WHERE date = ? ORDER BY queue, start_time').all(date);
@@ -265,35 +268,65 @@ function writeSyncedData(date, timeline, sendNotifications = true) {
     // то вважаємо, що дані треба перезаписати
     if (existingOutages.length === 0) {
       Logger.debug('SyncEngine', `Metadata exists but no outages found for ${date}, forcing write`);
-      // Продовжуємо виконання (skip return)
+      isContentChanged = true;
+      // Вважаємо що змінились всі черги з нового графіку
+      changedQueues = finalUpdate.parsed.queues.map(q => q.queue);
     } else {
       // Конвертуємо в формат queues для порівняння
-      const existingQueues = [];
-      const queueMap = new Map();
+      const existingQueuesMap = new Map();
 
       for (const outage of existingOutages) {
-        if (!queueMap.has(outage.queue)) {
-          queueMap.set(outage.queue, { queue: outage.queue, intervals: [] });
+        if (!existingQueuesMap.has(outage.queue)) {
+          existingQueuesMap.set(outage.queue, []);
         }
-        queueMap.get(outage.queue).intervals.push({
+        existingQueuesMap.get(outage.queue).push({
           start: outage.start_time,
           end: outage.end_time
         });
       }
 
-      queueMap.forEach(q => existingQueues.push(q));
+      // 1. Перевіряємо черги, які є в новому апдейті
+      for (const newQueue of finalUpdate.parsed.queues) {
+        const queueId = newQueue.queue;
+        const newIntervals = [...newQueue.intervals].sort((a, b) => a.start.localeCompare(b.start));
+        
+        if (!existingQueuesMap.has(queueId)) {
+          // Нова черга якої не було
+          changedQueues.push(queueId);
+          continue;
+        }
 
-      // Порівнюємо контент
-      const existingContent = normalizeQueuesForComparison(existingQueues);
-      const newContent = normalizeQueuesForComparison(finalUpdate.parsed.queues);
+        const existingIntervals = existingQueuesMap.get(queueId);
+        
+        // Нормалізуємо для порівняння
+        const newStr = JSON.stringify(newIntervals);
+        const oldStr = JSON.stringify(existingIntervals); // Вже відсортовані SQL запитом
 
-      if (existingContent === newContent) {
+        if (newStr !== oldStr) {
+          changedQueues.push(queueId);
+        }
+        
+        // Видаляємо з map щоб відслідкувати ті, що зникли
+        existingQueuesMap.delete(queueId);
+      }
+
+      // 2. Додаємо черги, які зникли в новому апдейті (ті що залишились в map)
+      for (const [queueId] of existingQueuesMap) {
+        changedQueues.push(queueId);
+      }
+
+      if (changedQueues.length === 0) {
         Logger.debug('SyncEngine', `✅ ${date}: Content IDENTICAL, skipping (no push will be sent)`);
         return { updated: false, reason: 'no-changes' };
       } else {
-        Logger.info('SyncEngine', `🔄 ${date}: Content CHANGED, will update DB and send push`);
+        isContentChanged = true;
+        Logger.info('SyncEngine', `🔄 ${date}: Content CHANGED for queues: ${changedQueues.join(', ')}`);
       }
     }
+  } else {
+    // Новий запис - всі черги нові
+    isContentChanged = true;
+    changedQueues = finalUpdate.parsed.queues.map(q => q.queue);
   }
 
   Logger.debug('SyncEngine', `Writing synced data for ${date}: ${updateCount} updates, final from ${finalUpdate.source}`);
@@ -423,8 +456,10 @@ function writeSyncedData(date, timeline, sendNotifications = true) {
       (date >= tomorrow); // Для завтра+ надсилаємо завжди (і 'new' і 'updated')
 
     if (shouldSendPush) {
-      Logger.info('SyncEngine', `📨 Sending push notification: date=${date}, type=${metadataChangeType}`);
-      NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType, 'schedule_change').catch(err => {
+      Logger.info('SyncEngine', `📨 Sending push notification: date=${date}, type=${metadataChangeType}, changes=${changedQueues.length}`);
+      
+      // Передаємо список змінених черг в NotificationService
+      NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType, 'schedule_change', changedQueues).catch(err => {
         Logger.error('SyncEngine', 'Failed to send notification', err);
       });
     } else {

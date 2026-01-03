@@ -181,18 +181,22 @@ export class NotificationService {
         payload.badge = '/badge-icon.png';
 
         // Add actions based on notification type
+        // Reset actions if not provided in base payload (or we want to override/merge)
+        // But for now let's just create fresh actions based on type
         payload.actions = [];
 
         if (notificationType === 'schedule_change' || notificationType === 'tomorrow_schedule') {
+            // New "View Changes" action
+            payload.actions.push({
+                action: 'view_changes',
+                title: 'Переглянути зміни',
+                icon: '/icons/changes.png'
+            });
+            
             payload.actions.push({
                 action: 'view',
                 title: 'Переглянути графік',
                 icon: '/icons/calendar.png'
-            });
-            payload.actions.push({
-                action: 'dismiss',
-                title: 'Закрити',
-                icon: '/icons/close.png'
             });
         } else if (notificationType === 'power_off_30min') {
             payload.actions.push({
@@ -671,8 +675,9 @@ export class NotificationService {
      * @param {Object} scheduleData - The schedule object
      * @param {string} changeType - 'new' or 'updated'
      * @param {string} notificationType - Type: 'schedule_change', 'tomorrow_schedule', 'emergency'
+     * @param {Array} changedQueues - List of queues that have changed
      */
-    static async notifyScheduleChange(scheduleData, changeType, notificationType = 'schedule_change') {
+    static async notifyScheduleChange(scheduleData, changeType, notificationType = 'schedule_change', changedQueues = []) {
         if (!this.initialized) {
             Logger.debug('NotificationService', 'Service not initialized, skipping notification');
             return;
@@ -688,15 +693,13 @@ export class NotificationService {
             return;
         }
 
-        Logger.info('NotificationService', `📅 Schedule change for ${scheduleData.date}: ${changeType}, last_updated=${scheduleMetadata.last_updated_at}`);
+        Logger.info('NotificationService', `📅 Schedule change for ${scheduleData.date}: ${changeType}, last_updated=${scheduleMetadata.last_updated_at}, changedQueues=${changedQueues.length}`);
 
         // ONLY send to users whose subscription was created/updated BEFORE this schedule change
         // This prevents new users from getting all historical notifications
         const subscriptions = db.prepare(`
             SELECT * FROM push_subscriptions
             WHERE failure_count < 5
-            AND selected_queue IS NULL
-            AND updated_at < ?
             AND (
                 notification_types LIKE '%"all"%'
                 OR notification_types LIKE ?
@@ -707,24 +710,46 @@ export class NotificationService {
 
         if (subscriptions.length > 0) {
             subscriptions.forEach((sub, idx) => {
-                Logger.debug('NotificationService', `  [${idx + 1}] endpoint=${sub.endpoint.substring(0, 50)}..., updated_at=${sub.updated_at}`);
+                Logger.debug('NotificationService', `  [${idx + 1}] endpoint=${sub.endpoint.substring(0, 50)}..., queue=${sub.selected_queue}`);
             });
         }
 
-        const payload = JSON.stringify({
-            title: changeType === 'new' ? 'Новий графік відключень!' : 'Графік оновлено!',
-            body: `Отримано дані для: ${scheduleData.date}. Перевірте актуальний розклад.`,
-            icon: '/icon-192x192.png',
-            tag: `schedule-${scheduleData.date}`, // Замінить старі повідомлення для тієї самої дати
-            renotify: true, // Показати нове повідомлення навіть якщо старе вже було
-            data: {
-                type: notificationType,
-                date: scheduleData.date,
-                url: `/?date=${scheduleData.date}`
+        // Dynamic payload factory for personalization
+        const payloadFactory = (sub) => {
+            let title = changeType === 'new' ? 'Новий графік відключень!' : 'Графік оновлено!';
+            let body = `Отримано дані для: ${scheduleData.date}. Перевірте актуальний розклад.`;
+            
+            // Personalization based on queue
+            if (sub.selected_queue) {
+                // If we know which queues changed
+                if (changedQueues && changedQueues.length > 0) {
+                    if (changedQueues.includes(sub.selected_queue)) {
+                        title = '⚠️ Зміни у вашій черзі!';
+                        body = `Графік для черги ${sub.selected_queue} змінився! Перевірте новий розклад.`;
+                    } else if (changeType === 'updated') {
+                        // Schedule updated, but NOT for this queue
+                         title = 'Графік оновлено';
+                         body = `Оновлено загальний графік. Для вашої черги (${sub.selected_queue}) змін не виявлено.`;
+                    }
+                }
             }
-        });
+            
+            return JSON.stringify({
+                title,
+                body,
+                icon: '/icon-192x192.png',
+                tag: `schedule-${scheduleData.date}`, // Замінить старі повідомлення для тієї самої дати
+                renotify: true, // Показати нове повідомлення навіть якщо старе вже було
+                data: {
+                    type: notificationType,
+                    date: scheduleData.date,
+                    url: `/?date=${scheduleData.date}`,
+                    changedQueues: changedQueues // Pass to frontend
+                }
+            });
+        };
 
-        await this.sendNotifications(subscriptions, () => payload, notificationType, {
+        await this.sendNotifications(subscriptions, payloadFactory, notificationType, {
             ttl: 604800,     // 1 week - user can check schedule anytime
             urgency: 'low',  // Not time-critical, can wait for better battery conditions
             topic: `schedule-${scheduleData.date}` // Coalesce multiple updates for same date
