@@ -4,6 +4,7 @@ import { rescheduleNotifications, getNotificationStats } from '../services/Sched
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { requireAdminKey } from '../middleware/apiKeyAuth.js';
 import process from 'process';
+import { getKyivDate } from '../utils/dateUtils.js';
 
 const router = Router();
 
@@ -273,7 +274,7 @@ router.get('/subscriptions/details', requireAdminKey, (_req, res) => {
 router.post('/test-general', requireAdminKey, asyncHandler(async (_req, res) => {
     try {
         await NotificationService.notifyScheduleChange(
-            { date: new Date().toISOString().split('T')[0] },
+            { date: getKyivDate() },
             'updated',
             'schedule_change'
         );
@@ -310,7 +311,7 @@ router.post('/test-general', requireAdminKey, asyncHandler(async (_req, res) => 
  */
 router.post('/reschedule', requireAdminKey, asyncHandler(async (req, res) => {
     try {
-        const date = req.body.date || new Date().toISOString().split('T')[0];
+        const date = req.body.date || getKyivDate();
         rescheduleNotifications(date);
         res.json({
             success: true,

@@ -2,6 +2,30 @@ export function normalizeText(text) {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Отримує поточний рік в київському часовому поясі
+ */
+function getKyivYear() {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Kiev',
+    year: 'numeric'
+  });
+  return parseInt(formatter.format(now), 10);
+}
+
+/**
+ * Отримує поточний місяць в київському часовому поясі (1-12)
+ */
+function getKyivMonth() {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Kiev',
+    month: '2-digit'
+  });
+  return parseInt(formatter.format(now), 10);
+}
+
 export function extractDate(text) {
   // Мапа українських назв місяців
   const monthMap = {
@@ -26,7 +50,18 @@ export function extractDate(text) {
     const day = textDateMatch[1].padStart(2, "0");
     const monthName = textDateMatch[2].toLowerCase();
     const month = monthMap[monthName];
-    const year = new Date().getFullYear();
+
+    // Використовуємо київський час для визначення року
+    let year = getKyivYear();
+    const currentMonth = getKyivMonth();
+    const parsedMonth = parseInt(month, 10);
+
+    // Якщо місяць у повідомленні менший за поточний, це наступний рік
+    // Наприклад: зараз грудень (12), а в повідомленні січень (01) -> наступний рік
+    if (parsedMonth < currentMonth) {
+      year += 1;
+    }
+
     return `${year}-${month}-${day}`;
   }
 
@@ -36,7 +71,19 @@ export function extractDate(text) {
 
   const day = numDateMatch[1].padStart(2, "0");
   const month = numDateMatch[2].padStart(2, "0");
-  const year = numDateMatch[3] || new Date().getFullYear();
+  let year = numDateMatch[3];
+
+  if (!year) {
+    // Якщо рік не вказаний, визначаємо його
+    year = getKyivYear();
+    const currentMonth = getKyivMonth();
+    const parsedMonth = parseInt(month, 10);
+
+    // Якщо місяць менший за поточний, це наступний рік
+    if (parsedMonth < currentMonth) {
+      year += 1;
+    }
+  }
 
   return `${year}-${month}-${day}`;
 }
