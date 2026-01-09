@@ -31,6 +31,17 @@ export const config = {
     channelUrl: process.env.TELEGRAM_CHANNEL_URL
   },
 
+  // Zoe Scraper Configuration
+  zoe: {
+    enabled: process.env.ENABLE_ZOE_SCRAPER !== 'false', // Enabled by default
+    skipSslVerify: process.env.ZOE_SKIP_SSL_VERIFY === 'true'
+  },
+
+  // Sync Engine Configuration
+  sync: {
+    useSyncEngine: process.env.USE_SYNC_ENGINE === 'true'
+  },
+
   // Logging Configuration
   logging: {
     debug: process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development'

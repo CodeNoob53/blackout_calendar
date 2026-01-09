@@ -182,11 +182,18 @@ async function fetchAllTelegramUpdates() {
  * Збирає всі апдейти з Zoe (dry-run, без запису в БД)
  */
 async function fetchAllZoeUpdates() {
+  // Check if Zoe scraper is enabled
+  const config = await import('../config/index.js');
+  if (!config.default.zoe.enabled) {
+    Logger.info('SyncEngine', 'Zoe scraper is disabled (ENABLE_ZOE_SCRAPER=false), skipping');
+    return [];
+  }
+
   Logger.info('SyncEngine', 'Fetching Zoe updates (dry-run)...');
 
   const html = await fetchZoeUpdates();
   if (!html) {
-    Logger.warning('SyncEngine', 'No HTML from Zoe, skipping');
+    Logger.warning('SyncEngine', 'No HTML from Zoe (geo-blocking or network issue), falling back to Telegram-only');
     return [];
   }
 
