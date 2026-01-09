@@ -87,9 +87,9 @@ export async function fetchZoeUpdates() {
     // Додаємо таймстемп, щоб обходити кеш на проміжних проксі (Cloudflare/бразуерні кеші)
     const requestUrl = `${ZOE_URL}?_=${Date.now()}`;
 
-    // Retry logic
+    // Retry logic with shorter timeout for faster fallback
     let attempts = 0;
-    const maxAttempts = 3;
+    const maxAttempts = 2; // Reduced from 3 to speed up fallback
     let lastError;
 
     while (attempts < maxAttempts) {
@@ -97,8 +97,8 @@ export async function fetchZoeUpdates() {
         attempts++;
         if (attempts > 1) {
           Logger.info('ZoeScraper', `Attempt ${attempts}/${maxAttempts} to fetch Zoe...`);
-          // Wait 2 seconds before retry
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          // Wait 1 second before retry (reduced from 2)
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
         const response = await axios.get(requestUrl, {
@@ -110,7 +110,7 @@ export async function fetchZoeUpdates() {
             'Pragma': 'no-cache'
           },
           httpsAgent: agent,
-          timeout: 20000, // 20 секунд
+          timeout: 15000, // Reduced from 20s to 15s for faster fallback
           maxRedirects: 5,
           validateStatus: function (status) {
             return status >= 200 && status < 300;
@@ -139,7 +139,8 @@ export async function fetchZoeUpdates() {
     // Детальніше логування помилки
     if (axios.isAxiosError(error)) {
       if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-        Logger.warning('ZoeScraper', 'Request timeout while fetching zoe.com.ua (30s)');
+        Logger.warning('ZoeScraper', 'Request timeout while fetching zoe.com.ua - possible geo-blocking from non-Ukrainian IP');
+        Logger.info('ZoeScraper', 'Falling back to Telegram-only mode. Set ENABLE_ZOE_SCRAPER=false to disable Zoe entirely');
       } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
         Logger.warning('ZoeScraper', `Cannot connect to zoe.com.ua: ${error.message}`);
       } else if (error.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || error.code === 'CERT_HAS_EXPIRED' ||
@@ -152,7 +153,7 @@ export async function fetchZoeUpdates() {
         Logger.warning('ZoeScraper', `HTTP ${error.response.status}: ${error.response.statusText}`);
       } else if (error.request) {
         // Запит був зроблений, але відповіді не отримано
-        Logger.warning('ZoeScraper', 'No response received from zoe.com.ua');
+        Logger.warning('ZoeScraper', 'No response received from zoe.com.ua - possible geo-blocking');
       } else {
         Logger.warning('ZoeScraper', `Request setup error: ${error.message}`);
       }
