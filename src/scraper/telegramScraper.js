@@ -9,12 +9,14 @@ const CHANNEL_URL = config.telegram.channelUrl;
 export function isEmergencyBlackoutMessage(text) {
   const normalizedText = text.toLowerCase();
 
-  // Виключаємо повідомлення про відновлення
+  // Виключаємо повідомлення про відновлення та скасування
   const excludeKeywords = [
     'відновило',
     'повернуло світло',
     'відновлення',
-    'усунули'
+    'усунули',
+    'скасовано',
+    'скасовуються'
   ];
 
   if (excludeKeywords.some(keyword => normalizedText.includes(keyword))) {
