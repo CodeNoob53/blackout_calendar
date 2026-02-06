@@ -25,13 +25,13 @@ function filterLineographs(updates, skipDateFilter = false) {
   return updates.filter(update => {
     if (!update.parsed.date) return false;
 
-    // ВАЖЛИВО: Використовуємо getKyivDate() для коректного порівняння з локальною датою
     const todayStr = getKyivDate();
 
-    // Якщо дата графіку менша за сьогоднішню - це лайнографік
-    // Але якщо це вчорашній графік, який прийшов сьогодні вночі (до 03:00) - це може бути ок?
-    // Ні, filterLineographs має відсікати все що < today
-    if (update.parsed.date < todayStr) {
+    // ВАЖЛИВО: дозволяємо вчорашній графік (для bootstrap та коректного відображення історії)
+    // Але відсікаємо все, що старше за "вчора"
+    const yesterdayStr = addDays(todayStr, -1);
+    
+    if (update.parsed.date < yesterdayStr && !skipDateFilter) {
       // Logger.debug('SyncEngine', `Filtered past schedule: date=${update.parsed.date} (today=${todayStr})`);
       return false;
     }
@@ -163,7 +163,7 @@ async function fetchAllTelegramUpdates() {
   const updates = [];
 
   for (const msg of relevant) {
-    const parsed = parseScheduleMessage(msg.text);
+    const parsed = parseScheduleMessage(msg.text, msg.messageDate);
     if (parsed.date && parsed.queues.length > 0) {
       updates.push({
         sourceId: msg.id,

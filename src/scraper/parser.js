@@ -1,7 +1,7 @@
 import { extractDate } from "./utils.js";
 
-export function parseScheduleMessage(text) {
-  const date = extractDate(text);
+export function parseScheduleMessage(text, baseDateStr = null) {
+  const date = extractDate(text, baseDateStr);
 
   const queues = [];
 

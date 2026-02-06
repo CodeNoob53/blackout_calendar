@@ -700,11 +700,12 @@ export class NotificationService {
         const subscriptions = db.prepare(`
             SELECT * FROM push_subscriptions
             WHERE failure_count < 5
+            AND updated_at < ?
             AND (
                 notification_types LIKE '%"all"%'
                 OR notification_types LIKE ?
             )
-        `).all(scheduleMetadata.last_updated_at, `%"${notificationType}"%`);
+                    `).all(scheduleMetadata.last_updated_at, `%"${notificationType}"%`);
 
         Logger.info('NotificationService', `👥 Found ${subscriptions.length} eligible subscribers (updated_at < ${scheduleMetadata.last_updated_at})`);
 
