@@ -288,7 +288,13 @@ export class NotificationService {
             subscription.keys.auth,
             userAgent || 'Unknown'
         ];
-        const updateFields = ['updated_at = CURRENT_TIMESTAMP', 'last_active = CURRENT_TIMESTAMP'];
+        const updateFields = [
+            'updated_at = CURRENT_TIMESTAMP',
+            'last_active = CURRENT_TIMESTAMP',
+            'keys_p256dh = excluded.keys_p256dh',
+            'keys_auth = excluded.keys_auth',
+            'user_agent = excluded.user_agent'
+        ];
 
         // Add optional queue
         if (queue !== null && queue !== undefined) {
