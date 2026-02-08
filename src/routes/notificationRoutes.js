@@ -289,6 +289,103 @@ router.post('/test-general', requireAdminKey, asyncHandler(async (_req, res) => 
 
 /**
  * @swagger
+ * /api/notifications/test-type:
+ *   post:
+ *     summary: Send test notification of specific type (debug only)
+ *     tags: [Notifications]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [type]
+ *             properties:
+ *               type:
+ *                 type: string
+ *                 enum: [schedule_change, tomorrow_schedule, emergency, power_off_30min, power_on]
+ *               queue:
+ *                 type: string
+ *                 description: Queue for power_off_30min/power_on (defaults to first subscriber's queue)
+ *     responses:
+ *       200:
+ *         description: Test notification sent
+ */
+router.post('/test-type', requireAdminKey, asyncHandler(async (req, res) => {
+    const { type, queue } = req.body;
+
+    if (!type) {
+        return res.status(400).json({ success: false, message: 'type is required (schedule_change, tomorrow_schedule, emergency, power_off_30min, power_on)' });
+    }
+
+    try {
+        const today = getKyivDate();
+
+        if (type === 'schedule_change') {
+            await NotificationService.notifyScheduleChange(
+                { date: today },
+                'updated',
+                'schedule_change',
+                queue ? [queue] : []
+            );
+            res.json({ success: true, message: `Test schedule_change sent for ${today}` });
+
+        } else if (type === 'tomorrow_schedule') {
+            // For testing: use today's date (which has schedule_metadata) but with 'new' changeType
+            // In production, SyncEngine calls this with the actual tomorrow date when new data arrives
+            await NotificationService.notifyScheduleChange(
+                { date: today },
+                'new',
+                'tomorrow_schedule',
+                queue ? [queue] : []
+            );
+            res.json({ success: true, message: `Test tomorrow_schedule sent (using ${today} as reference)` });
+
+        } else if (type === 'emergency') {
+            await NotificationService.notifyEmergency({
+                date: today,
+                title: '⚠️ ТЕСТ: Аварійні відключення',
+                body: `Тестове аварійне сповіщення. Можливі відключення у вашому районі (${today}).`,
+                affectedGroups: queue ? [queue] : ['all']
+            });
+            res.json({ success: true, message: `Test emergency sent for ${today}` });
+
+        } else if (type === 'power_off_30min') {
+            const targetQueue = queue || '4.1';
+            await NotificationService.notifyQueueSubscribers(
+                targetQueue,
+                {
+                    title: '⚠️ ТЕСТ: Світло вимкнеться через 30 хв',
+                    body: `Черга ${targetQueue}: тестове відключення з 14:00 до 18:00`,
+                    url: `/?queue=${targetQueue}`
+                },
+                'power_off_30min'
+            );
+            res.json({ success: true, message: `Test power_off_30min sent for queue ${targetQueue}` });
+
+        } else if (type === 'power_on') {
+            const targetQueue = queue || '4.1';
+            await NotificationService.notifyQueueSubscribers(
+                targetQueue,
+                {
+                    title: '✅ ТЕСТ: Світло увімкнулось',
+                    body: `Черга ${targetQueue}: тестове відновлення електропостачання`,
+                    url: `/?queue=${targetQueue}`
+                },
+                'power_on'
+            );
+            res.json({ success: true, message: `Test power_on sent for queue ${targetQueue}` });
+
+        } else {
+            res.status(400).json({ success: false, message: `Unknown type: ${type}. Use: schedule_change, tomorrow_schedule, emergency, power_off_30min, power_on` });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+}));
+
+/**
+ * @swagger
  * /api/notifications/reschedule:
  *   post:
  *     summary: Manually reschedule notifications for a specific date (debug only)

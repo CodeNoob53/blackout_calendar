@@ -13,7 +13,7 @@ import schedule from 'node-schedule';
 import { db } from '../db.js';
 import { NotificationService } from './NotificationService.js';
 import Logger from '../utils/logger.js';
-import { getKyivDate, addDays } from '../utils/dateUtils.js';
+import { getKyivDate, addDays, kyivTimeToUTC } from '../utils/dateUtils.js';
 
 /**
  * Зберігаємо всі заплановані завдання
@@ -72,14 +72,10 @@ function cancelAllJobs() {
 function calculateWarningTime(date, startTime) {
   const [hours, minutes] = startTime.split(':').map(Number);
 
-  // Build ISO string in Kyiv timezone: "2025-12-20T21:00:00+02:00"
-  // Ukraine permanently uses UTC+2 (no DST as of 2025)
-  const kyivTimeStr = `${date}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00+02:00`;
+  // Конвертуємо Київський час в UTC (динамічно, без хардкоду офсету)
+  const warningDate = kyivTimeToUTC(date, hours, minutes);
 
-  // Parse as UTC Date object
-  const warningDate = new Date(kyivTimeStr);
-
-  // Subtract 30 minutes for warning
+  // Віднімаємо 30 хвилин для попередження
   warningDate.setMinutes(warningDate.getMinutes() - 30);
 
   return warningDate;
@@ -114,18 +110,11 @@ function calculatePowerOnTime(date, endTime, startTime) {
   const startMinutesTotal = startHours * 60 + startMinutes;
 
   if (needsNextDay || endMinutesTotal <= startMinutesTotal) {
-    // endTime на наступний день - додаємо 1 день до дати
     targetDate = addDays(date, 1);
   }
 
-  // Build ISO string in Kyiv timezone: "2025-12-20T00:00:00+02:00"
-  // Ukraine permanently uses UTC+2 (no DST as of 2025)
-  const kyivTimeStr = `${targetDate}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00+02:00`;
-
-  // Parse as UTC Date object
-  const powerOnDate = new Date(kyivTimeStr);
-
-  return powerOnDate;
+  // Конвертуємо Київський час в UTC (динамічно, без хардкоду офсету)
+  return kyivTimeToUTC(targetDate, hours, minutes);
 }
 
 /**
@@ -283,8 +272,8 @@ export function scheduleUpcomingNotifications() {
  * Запускається щодня о 00:01
  */
 function scheduleDailyUpdate() {
-  // Cron: щодня о 00:01
-  const dailyJob = schedule.scheduleJob('1 0 * * *', () => {
+  // Cron: щодня о 00:01 за Київським часом (незалежно від таймзони сервера)
+  const dailyJob = schedule.scheduleJob({ rule: '1 0 * * *', tz: 'Europe/Kyiv' }, () => {
     Logger.info('ScheduleNotificationService', 'Daily update: cleaning old jobs and scheduling tomorrow...');
 
     const today = getKyivDate();

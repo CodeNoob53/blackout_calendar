@@ -366,7 +366,10 @@ export class NotificationService {
                 return false;
             }
 
-            updates.push('updated_at = CURRENT_TIMESTAMP');
+            // Only update last_active, NOT updated_at
+            // updated_at is used by notifyScheduleChange to filter subscribers,
+            // so updating it on every queue change would block them from receiving notifications
+            updates.push('last_active = CURRENT_TIMESTAMP');
             params.push(endpoint);
 
             const stmt = db.prepare(`
@@ -695,19 +698,20 @@ export class NotificationService {
 
         Logger.info('NotificationService', `📅 Schedule change for ${scheduleData.date}: ${changeType}, last_updated=${scheduleMetadata.last_updated_at}, changedQueues=${changedQueues.length}`);
 
-        // ONLY send to users whose subscription was created/updated BEFORE this schedule change
-        // This prevents new users from getting all historical notifications
+        // Send to all active subscribers with matching notification types
+        // Deduplication is handled by recentNotifications cache to prevent duplicate sends
+        // We use created_at filter only to avoid sending historical notifications to brand-new subscribers
         const subscriptions = db.prepare(`
             SELECT * FROM push_subscriptions
             WHERE failure_count < 5
-            AND updated_at < ?
+            AND created_at < ?
             AND (
                 notification_types LIKE '%"all"%'
                 OR notification_types LIKE ?
             )
-                    `).all(scheduleMetadata.last_updated_at, `%"${notificationType}"%`);
+        `).all(scheduleMetadata.last_updated_at, `%"${notificationType}"%`);
 
-        Logger.info('NotificationService', `👥 Found ${subscriptions.length} eligible subscribers (updated_at < ${scheduleMetadata.last_updated_at})`);
+        Logger.info('NotificationService', `👥 Found ${subscriptions.length} eligible subscribers (created_at < ${scheduleMetadata.last_updated_at})`);
 
         if (subscriptions.length > 0) {
             subscriptions.forEach((sub, idx) => {
@@ -739,7 +743,7 @@ export class NotificationService {
                 title,
                 body,
                 icon: '/icon-192x192.png',
-                tag: `schedule-${scheduleData.date}`, // Замінить старі повідомлення для тієї самої дати
+                tag: `${notificationType}-${scheduleData.date}`, // Різний tag для schedule_change vs tomorrow_schedule
                 renotify: true, // Показати нове повідомлення навіть якщо старе вже було
                 data: {
                     type: notificationType,
@@ -753,7 +757,7 @@ export class NotificationService {
         await this.sendNotifications(subscriptions, payloadFactory, notificationType, {
             ttl: 604800,     // 1 week - user can check schedule anytime
             urgency: 'low',  // Not time-critical, can wait for better battery conditions
-            topic: `schedule-${scheduleData.date}` // Coalesce multiple updates for same date
+            topic: `${notificationType}-${scheduleData.date}` // Coalesce by type+date
         });
     }
 
