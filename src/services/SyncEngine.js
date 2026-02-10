@@ -250,7 +250,7 @@ function groupByDate(updates) {
  * @param {Array} timeline - Масив оновлень
  * @param {boolean} sendNotifications - Чи надсилати push-сповіщення (false для bootstrap)
  */
-function writeSyncedData(date, timeline, sendNotifications = true) {
+async function writeSyncedData(date, timeline, sendNotifications = true) {
   if (timeline.length === 0) return { updated: false };
 
   // Фінальний апдейт = останній в timeline
@@ -462,11 +462,13 @@ function writeSyncedData(date, timeline, sendNotifications = true) {
 
     if (shouldSendPush) {
       Logger.info('SyncEngine', `📨 Sending push notification: date=${date}, type=${metadataChangeType}, changes=${changedQueues.length}`);
-      
+
       // Передаємо список змінених черг в NotificationService
-      NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType, 'schedule_change', changedQueues).catch(err => {
+      try {
+        await NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType, 'schedule_change', changedQueues);
+      } catch (err) {
         Logger.error('SyncEngine', 'Failed to send notification', err);
-      });
+      }
     } else {
       Logger.debug('SyncEngine', `⏭️  Skipping push: date=${date}, type=${metadataChangeType} (not matching criteria)`);
     }
@@ -528,7 +530,7 @@ async function syncUpdates(telegramUpdates, zoeUpdates, skipDateFilter = false, 
     }
 
     // Записуємо синхронізовані дані
-    const result = writeSyncedData(date, timeline, sendNotifications);
+    const result = await writeSyncedData(date, timeline, sendNotifications);
 
     if (result.updated) {
       results.synced++;
