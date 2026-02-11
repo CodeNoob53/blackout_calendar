@@ -10,7 +10,7 @@
 
 import { fetchTelegramUpdates } from "../scraper/telegramScraper.js";
 import { fetchZoeUpdates, parseZoeHTML } from "../scraper/zoeScraper.js";
-import { parseScheduleMessage } from "../scraper/parser.js";
+import { parseScheduleMessage, isOnlyChangeWarning } from "../scraper/parser.js";
 import { db } from "../db.js";
 import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
 import Logger from "../utils/logger.js";
@@ -153,11 +153,22 @@ async function fetchAllTelegramUpdates() {
   const messages = await fetchTelegramUpdates();
 
   // Фільтруємо релевантні повідомлення
-  const relevant = messages.filter(m =>
-    m.text.includes("ГПВ") ||
-    m.text.includes("Години відсутності") ||
-    m.text.includes("ОНОВЛЕНО")
-  );
+  const relevant = messages.filter(m => {
+    // Перевіряємо чи є ключові слова
+    const hasKeywords = m.text.includes("ГПВ") ||
+      m.text.includes("Години відсутності") ||
+      m.text.includes("ОНОВЛЕНО");
+
+    if (!hasKeywords) return false;
+
+    // Відкидаємо повідомлення які є тільки попередженнями без графіку
+    if (isOnlyChangeWarning(m.text)) {
+      Logger.debug('SyncEngine', `Skipping change warning message (no schedule): ${m.id}`);
+      return false;
+    }
+
+    return true;
+  });
 
   // Парсимо всі повідомлення
   const updates = [];
@@ -171,6 +182,8 @@ async function fetchAllTelegramUpdates() {
         messageDate: msg.messageDate,
         parsed: parsed
       });
+    } else {
+      Logger.debug('SyncEngine', `Skipped message ${msg.id}: no date or queues found`);
     }
   }
 
@@ -250,7 +263,7 @@ function groupByDate(updates) {
  * @param {Array} timeline - Масив оновлень
  * @param {boolean} sendNotifications - Чи надсилати push-сповіщення (false для bootstrap)
  */
-function writeSyncedData(date, timeline, sendNotifications = true) {
+async function writeSyncedData(date, timeline, sendNotifications = true) {
   if (timeline.length === 0) return { updated: false };
 
   // Фінальний апдейт = останній в timeline
@@ -462,11 +475,13 @@ function writeSyncedData(date, timeline, sendNotifications = true) {
 
     if (shouldSendPush) {
       Logger.info('SyncEngine', `📨 Sending push notification: date=${date}, type=${metadataChangeType}, changes=${changedQueues.length}`);
-      
+
       // Передаємо список змінених черг в NotificationService
-      NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType, 'schedule_change', changedQueues).catch(err => {
+      try {
+        await NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType, 'schedule_change', changedQueues);
+      } catch (err) {
         Logger.error('SyncEngine', 'Failed to send notification', err);
-      });
+      }
     } else {
       Logger.debug('SyncEngine', `⏭️  Skipping push: date=${date}, type=${metadataChangeType} (not matching criteria)`);
     }
@@ -528,7 +543,7 @@ async function syncUpdates(telegramUpdates, zoeUpdates, skipDateFilter = false, 
     }
 
     // Записуємо синхронізовані дані
-    const result = writeSyncedData(date, timeline, sendNotifications);
+    const result = await writeSyncedData(date, timeline, sendNotifications);
 
     if (result.updated) {
       results.synced++;

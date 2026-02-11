@@ -1,5 +1,43 @@
 import { extractDate } from "./utils.js";
 
+/**
+ * Перевіряє чи є повідомлення тільки попередженням про зміни (без фактичного графіку)
+ * Такі повідомлення часто містять ключові слова, але не мають черг і часів
+ */
+export function isOnlyChangeWarning(text) {
+  const normalizedText = text.toLowerCase();
+
+  // Ключові фрази які вказують на попередження без графіку
+  const warningPhrases = [
+    'може змінитися',
+    'можливі зміни',
+    'можуть бути зміни',
+    'очікуйте на оновлення',
+    'інформуватимемо додатково',
+    'буде оприлюднено',
+    'буде повідомлено',
+    'слідкуйте за оновленнями',
+    'інформація буде надана',
+    'графік буде оновлено',
+    'очікується зміна'
+  ];
+
+  // Перевіряємо чи є попереджувальні фрази
+  const hasWarningPhrase = warningPhrases.some(phrase =>
+    normalizedText.includes(phrase)
+  );
+
+  if (!hasWarningPhrase) {
+    return false; // Немає попереджувальних фраз - це не попередження
+  }
+
+  // Перевіряємо чи є конкретні часи (HH:mm)
+  const hasTimePattern = /\d{1,2}:\d{2}/.test(text);
+
+  // Якщо є попередження але немає конкретних часів - це тільки попередження
+  return !hasTimePattern;
+}
+
 export function parseScheduleMessage(text, baseDateStr = null) {
   const date = extractDate(text, baseDateStr);
 
