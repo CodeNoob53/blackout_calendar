@@ -476,9 +476,9 @@ async function writeSyncedData(date, timeline, sendNotifications = true) {
     if (shouldSendPush) {
       Logger.info('SyncEngine', `📨 Sending push notification: date=${date}, type=${metadataChangeType}, changes=${changedQueues.length}`);
 
-      // Передаємо список змінених черг в NotificationService
+      // Передаємо список змінених черг та джерело в NotificationService
       try {
-        await NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType, 'schedule_change', changedQueues);
+        await NotificationService.notifyScheduleChange(finalUpdate.parsed, metadataChangeType, 'schedule_change', changedQueues, finalUpdate.source);
       } catch (err) {
         Logger.error('SyncEngine', 'Failed to send notification', err);
       }

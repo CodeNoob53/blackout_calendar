@@ -686,7 +686,7 @@ export class NotificationService {
      * @param {string} notificationType - Type: 'schedule_change', 'tomorrow_schedule', 'emergency'
      * @param {Array} changedQueues - List of queues that have changed
      */
-    static async notifyScheduleChange(scheduleData, changeType, notificationType = 'schedule_change', changedQueues = []) {
+    static async notifyScheduleChange(scheduleData, changeType, notificationType = 'schedule_change', changedQueues = [], source = 'telegram') {
         if (!this.initialized) {
             Logger.debug('NotificationService', 'Service not initialized, skipping notification');
             return;
@@ -725,23 +725,45 @@ export class NotificationService {
             });
         }
 
+        // Format date for human-readable notifications (e.g. "15 лютого")
+        const formatDate = (dateStr) => {
+            const months = [
+                'січня', 'лютого', 'березня', 'квітня', 'травня', 'червня',
+                'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'
+            ];
+            const [, month, day] = dateStr.split('-').map(Number);
+            return `${day} ${months[month - 1]}`;
+        };
+
+        const formattedDate = formatDate(scheduleData.date);
+
+        // Map source to human-readable name
+        const sourceLabels = {
+            telegram: 'офіційний Telegram канал АТ "Запоріжжяобленерго"',
+            zoe: 'офіційний сайт zoe.com.ua'
+        };
+        const sourceLabel = sourceLabels[source] || source;
+
         // Dynamic payload factory for personalization
         const payloadFactory = (sub) => {
-            let title = changeType === 'new' ? 'Новий графік відключень!' : 'Графік оновлено!';
-            let body = `Отримано дані для: ${scheduleData.date}. Перевірте актуальний розклад.`;
-            
-            // Personalization based on queue
-            if (sub.selected_queue) {
-                // If we know which queues changed
-                if (changedQueues && changedQueues.length > 0) {
+            let title, body;
+
+            if (changeType === 'new') {
+                title = 'Новий графік';
+                body = `Доступний графік за ${formattedDate}. Джерело: ${sourceLabel}`;
+            } else {
+                // changeType === 'updated'
+                title = 'Графік оновлено';
+
+                // Personalization: вказати чи є зміни в черзі користувача
+                if (sub.selected_queue && changedQueues && changedQueues.length > 0) {
                     if (changedQueues.includes(sub.selected_queue)) {
-                        title = '⚠️ Зміни у вашій черзі!';
-                        body = `Графік для черги ${sub.selected_queue} змінився! Перевірте новий розклад.`;
-                    } else if (changeType === 'updated') {
-                        // Schedule updated, but NOT for this queue
-                         title = 'Графік оновлено';
-                         body = `Оновлено загальний графік. Для вашої черги (${sub.selected_queue}) змін не виявлено.`;
+                        body = `Оновлено графік за ${formattedDate}. Є зміни у вашій черзі (${sub.selected_queue})! Джерело: ${sourceLabel}`;
+                    } else {
+                        body = `Оновлено графік за ${formattedDate}. Для вашої черги (${sub.selected_queue}) змін немає. Джерело: ${sourceLabel}`;
                     }
+                } else {
+                    body = `Оновлено графік за ${formattedDate}. Джерело: ${sourceLabel}`;
                 }
             }
             
