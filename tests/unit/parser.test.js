@@ -38,4 +38,40 @@ describe('parseScheduleMessage', () => {
     expect(result.queues).toHaveLength(2);
     expect(result.queues.map((q) => q.queue)).toEqual(['1.1', '2.2']);
   });
+
+  it('parses lightning-prefixed format with intervals on separate lines', () => {
+    const text = `За терміновою вказівкою НЕК "Укренерго" оновлено графік погодинних відключень на 03 листопада:
+
+⚡ Черга 1.1
+ з 09:00 до 13:00
+ з 16:00 до 20:00
+
+⚡ Черга 1.2
+ з 09:00 до 13:00
+ з 16:00 до 20:00
+
+⚡ Черга 3.2
+ з 05:30 до 09:30
+ з 12:30 до 16:30
+ з 19:30 до 22:30
+
+⚡ Черга 6.2
+ з 05:30 до 09:30
+ з 12:30 до 16:30
+ з 19:30 до 22:30`;
+
+    const result = parseScheduleMessage(text, '2026-11-03T10:00:00Z');
+
+    expect(result.date).toBe('2026-11-03');
+    expect(result.queues.map((q) => q.queue)).toEqual(['1.1', '1.2', '3.2', '6.2']);
+    expect(result.queues[0].intervals).toEqual([
+      { start: '09:00', end: '13:00' },
+      { start: '16:00', end: '20:00' }
+    ]);
+    expect(result.queues[2].intervals).toEqual([
+      { start: '05:30', end: '09:30' },
+      { start: '12:30', end: '16:30' },
+      { start: '19:30', end: '22:30' }
+    ]);
+  });
 });
