@@ -10,7 +10,7 @@
 
 import { fetchTelegramUpdates } from "../scraper/telegramScraper.js";
 import { fetchZoeUpdates, parseZoeHTML } from "../scraper/zoeScraper.js";
-import { parseScheduleMessage, isOnlyChangeWarning } from "../scraper/parser.js";
+import { parseScheduleMessage, isOnlyChangeWarning, hasScheduleKeywords } from "../scraper/parser.js";
 import { db } from "../db.js";
 import { invalidateScheduleCaches } from "../utils/cacheHelper.js";
 import Logger from "../utils/logger.js";
@@ -155,9 +155,7 @@ async function fetchAllTelegramUpdates() {
   // Фільтруємо релевантні повідомлення
   const relevant = messages.filter(m => {
     // Перевіряємо чи є ключові слова
-    const hasKeywords = m.text.includes("ГПВ") ||
-      m.text.includes("Години відсутності") ||
-      m.text.includes("ОНОВЛЕНО");
+    const hasKeywords = hasScheduleKeywords(m.text);
 
     if (!hasKeywords) return false;
 

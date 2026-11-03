@@ -38,6 +38,19 @@ export function isOnlyChangeWarning(text) {
   return !hasTimePattern;
 }
 
+/**
+ * Чи схоже повідомлення на графік відключень (за ключовими словами).
+ * Старі формати: "ГПВ", "Години відсутності", "ОНОВЛЕНО".
+ * Новий формат (2026-11): "оновлено графік погодинних відключень" + "⚡ Черга X.Y".
+ */
+export function hasScheduleKeywords(text) {
+  return text.includes('ГПВ') ||
+    text.includes('Години відсутності') ||
+    text.includes('ОНОВЛЕНО') ||
+    /погодинних\s+відключень/i.test(text) ||
+    /оновлено\s+графік/i.test(text);
+}
+
 export function parseScheduleMessage(text, baseDateStr = null) {
   const date = extractDate(text, baseDateStr);
 

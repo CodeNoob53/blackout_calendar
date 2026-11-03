@@ -1,4 +1,4 @@
-import { parseScheduleMessage } from '../../src/scraper/parser.js';
+import { parseScheduleMessage, hasScheduleKeywords } from '../../src/scraper/parser.js';
 
 describe('parseScheduleMessage', () => {
   it('parses queues with emoji bullet prefix', () => {
@@ -73,5 +73,29 @@ describe('parseScheduleMessage', () => {
       { start: '12:30', end: '16:30' },
       { start: '19:30', end: '22:30' }
     ]);
+  });
+
+  it('parses real Telegram text flattened to a single line (no newlines)', () => {
+    const text = 'За терміновою вказівкою НЕК "Укренерго" оновлено графік погодинних відключень на 03 листопада:⚡ Черга 1.1 з 09:00 до 13:00 з 16:00 до 20:00⚡ Черга 4.1 з 09:00 до 13:00 з 16:00 до 20:00⚡ Черга 6.2 з 05:30 до 09:30 з 12:30 до 16:30 з 19:30 до 22:30';
+
+    const result = parseScheduleMessage(text, '2026-11-03T05:20:43+00:00');
+
+    expect(result.queues.map((q) => q.queue)).toEqual(['1.1', '4.1', '6.2']);
+    expect(result.queues[1].intervals).toEqual([
+      { start: '09:00', end: '13:00' },
+      { start: '16:00', end: '20:00' }
+    ]);
+  });
+});
+
+describe('hasScheduleKeywords', () => {
+  it('matches old and new schedule message wording', () => {
+    expect(hasScheduleKeywords('ГПВ на завтра')).toBe(true);
+    expect(hasScheduleKeywords('Години відсутності електропостачання')).toBe(true);
+    expect(hasScheduleKeywords('За терміновою вказівкою оновлено графік погодинних відключень на 03 листопада:')).toBe(true);
+  });
+
+  it('ignores unrelated posts', () => {
+    expect(hasScheduleKeywords('Час передавати покази електролічильників')).toBe(false);
   });
 });
