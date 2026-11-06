@@ -86,6 +86,27 @@ describe('parseScheduleMessage', () => {
       { start: '16:00', end: '20:00' }
     ]);
   });
+  it('parses "Черга X.Y:" lines with intervals separated by semicolons', () => {
+    const text = 'Відповідно до команди НЕК «Укренерго», 06 листопада по Запорізькій області будуть застосовані графіки погодинних відключень (ГПВ).Години відсутності електропостачання по чергам (підчергам) (з урахуванням 30 хвилин на перемикання):Черга 1.1: 12:00 - 17:00; 21:00 - 24:00Черга 1.2: 00:00 - 02:00; 06:00 - 11:00; 15:00 - 20:00Черга 2.2: 00:00 - 05:00;09:00 - 14:00; 18:00 - 22:30Черга 6.2: 04:30 - 09:30;13:30 - 18:30Також з 00:00 до 24:00 діятимуть графіки обмеження потужності (ГОП) в повному обсязі (5 черг).';
+
+    const result = parseScheduleMessage(text, '2026-11-05T17:56:47+00:00');
+
+    expect(result.date).toBe('2026-11-06');
+    expect(result.queues.map((q) => q.queue)).toEqual(['1.1', '1.2', '2.2', '6.2']);
+    expect(result.queues[0].intervals).toEqual([
+      { start: '12:00', end: '17:00' },
+      { start: '21:00', end: '00:00' }
+    ]);
+    expect(result.queues[2].intervals).toEqual([
+      { start: '00:00', end: '05:00' },
+      { start: '09:00', end: '14:00' },
+      { start: '18:00', end: '22:30' }
+    ]);
+    expect(result.queues[3].intervals).toEqual([
+      { start: '04:30', end: '09:30' },
+      { start: '13:30', end: '18:30' }
+    ]);
+  });
 });
 
 describe('hasScheduleKeywords', () => {
